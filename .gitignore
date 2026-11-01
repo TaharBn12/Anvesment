@@ -1,0 +1,18 @@
+# متغيرات البيئة والأسرار
+.env
+.env.local
+
+# قاعدة البيانات
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# الحزم والسجلات
+node_modules/
+npm-debug.log*
+*.log
+
+# ملفات النظام
+.DS_Store
+Thumbs.db

@@ -1,0 +1,26 @@
+{
+  "name": "crypto-investment-bot",
+  "version": "1.0.0",
+  "description": "بوت تلغرام للاستثمار في العملات الرقمية مع إيداع تلقائي عبر NOWPayments و5 مستويات استثمار",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node scripts/smoke-test.js && node scripts/integration-test.js",
+    "test:unit": "node scripts/smoke-test.js",
+    "test:e2e": "node scripts/integration-test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "qrcode": "^1.5.4",
+    "telegraf": "^4.16.3"
+  },
+  "license": "MIT"
+}
