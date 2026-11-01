@@ -163,7 +163,7 @@ export function startMocks(options = {}) {
     const npApp = express();
     npApp.use(express.json());
 
-    const np = { invoices: new Map(), payouts: [], counter: 5000 };
+    const np = { invoices: new Map(), payouts: [], counter: Number(options.invoiceCounterStart ?? 5000) };
 
     npApp.get('/v1/status', (req, res) => res.json({ message: 'OK' }));
     npApp.get('/v1/currencies', (req, res) =>

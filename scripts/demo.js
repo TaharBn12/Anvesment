@@ -19,9 +19,34 @@ const WEB_PORT = Number(process.env.DEMO_WEB_PORT || 3000);
 const APP_WEBHOOK_PORT = Number(process.env.DEMO_APP_WEBHOOK_PORT || 3001);
 const DEMO_USER = Number(process.env.DEMO_USER_ID || 555);
 const IPN_SECRET = 'demo_ipn_secret';
+const DB_FILE = path.join(ROOT, 'data', 'demo.db');
+
+/**
+ * أعلى رقم فاتورة مسجّل في قاعدة البيانات.
+ * يمنع تصادم أرقام الفواتير بين جلسات العرض (العدّاد في الخادم
+ * الوهمي يبدأ من الذاكرة، أما القاعدة فتبقى بين الجلسات) — لو
+ * تكرّر الرقم يعتبر خادم البوت الفاتورة مكرّرة ولا يضيف الرصيد.
+ */
+async function maxInvoiceIdInDb() {
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(DB_FILE, { readOnly: true });
+    const row = db.prepare(
+      "SELECT MAX(CAST(invoice_id AS INTEGER)) AS m FROM deposits"
+    ).get();
+    db.close();
+    return Number(row?.m ?? 0);
+  } catch {
+    return 0;
+  }
+}
 
 async function main() {
   console.log('🎬 تشغيل العرض الحي...\n');
+
+  // منع تصادم أرقام الفواتير مع جلسات سابقة
+  const invoiceStart = Math.max(5000, await maxInvoiceIdInDb());
+  console.log(`🧾 عدّاد الفواتير يبدأ من ${invoiceStart} (أعلى رقم في القاعدة: ${invoiceStart})\n`);
 
   const mocks = await startMocks({
     telegramPort: WEB_PORT,
@@ -30,6 +55,7 @@ async function main() {
     appWebhookPort: APP_WEBHOOK_PORT,
     appWebhookPath: '/webhooks/nowpayments',
     ipnSecret: IPN_SECRET,
+    invoiceCounterStart: invoiceStart,
   });
 
   const child = spawn('node', ['src/index.js'], {
