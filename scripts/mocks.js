@@ -221,6 +221,16 @@ export function startMocks(options = {}) {
     tgApp.get('/', (req, res) => res.type('html').send(chatPageHtml()));
     tgApp.get('/health', (req, res) => res.json({ ok: true, service: 'mock-telegram' }));
 
+    // حقن تحديث خام (تستخدمه الاختبارات)
+    tgApp.post('/_test/inject', (req, res) => {
+      const update = { ...req.body, update_id: ++tg.lastUpdateId };
+      tg.updates.push(update);
+      const waiters = tg.waiters.slice();
+      tg.waiters = [];
+      waiters.forEach((w) => w(update));
+      res.json({ ok: true, update_id: update.update_id });
+    });
+
     // استقبال رسالة من "المستخدم"
     tgApp.post('/api/send', (req, res) => {
       const text = String(req.body?.text ?? '').slice(0, 500);
