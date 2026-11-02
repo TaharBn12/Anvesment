@@ -33,9 +33,10 @@ npm start
 
 📖 **الدليل المفصّل خطوة بخطوة** (BotFather، NOWPayments، ngrok، النشر): [`docs/SETUP_AR.md`](docs/SETUP_AR.md)
 
-📱 **تريد التشغيل من الهاتف؟** (Railway مجاني 24/7 أو Termux لأندرويد): [`docs/DEPLOY_AR.md`](docs/DEPLOY_AR.md)
+📱 **تريد التشغيل من الهاتف؟** (Koyeb بدون طرفية، Termux لأندرويد): [`docs/DEPLOY_AR.md`](docs/DEPLOY_AR.md)
 
 ☁️ **النشر على Koyeb المجاني** (دليل كامل + حلول النوم وفقدان البيانات): [`docs/KOYEB_AR.md`](docs/KOYEB_AR.md)
+🍎 **عندك آيفون وتريد iSH؟** (لماذا لا يعمل داخله + الطريق الصحيح SSH): [`docs/ISH_AR.md`](docs/ISH_AR.md)
 
 ## 🧪 اختبار ذاتي بدون مفاتيح حقيقية
 
