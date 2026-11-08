@@ -28,22 +28,48 @@ node -v
 
 ## 🪟 الطريقة الأسهل: نقرة واحدة (Windows)
 
-### 1️⃣ حمّل المشروع
-من متصفحك افتح:
-```
-https://github.com/TaharBn12/Anvesment
-```
-اضغط الزر الأخضر **`<> Code`** ← **Download ZIP**
+### 1️⃣ حمّل المشروع — ⚠️ من الرابط الصحيح!
 
-فُكّ الضغط (اضغط عليه يمين ← **استخراج الكل** / Extract All) وضع المجلد في مكان ثابت
-مثل `C:\Anvesment` أو على سطح المكتب.
+> 🔴 **لا تضغط "Download ZIP" على صفحة GitHub!** الصفحة تعرض فرع `main`
+> وهو **فارغ** (فيه ملف README فقط). كل الكود على فرع `arena/eaf0e7c0-anvesment`.
+
+حمّل من هذا الرابط مباشرة (يفتح في المتصفح ويبدأ التحميل):
+
+```
+https://github.com/TaharBn12/Anvesment/archive/refs/heads/arena/eaf0e7c0-anvesment.zip
+```
+
+بعد التحميل ستجد ملفاً اسمه `Anvesment-arena-eaf0e7c0-anvesment.zip`.
+اضغط عليه يمين ← **استخراج الكل** / Extract All ← استخرج.
+
+> 📁 اسم المجلد بعد الاستخراج: `Anvesment-arena-eaf0e7c0-anvesment`
 
 ### 2️⃣ شغّل الملف
-ادخل المجلد وستجد **`scripts`** ← افتحه ← **انقر مرتين على `start.bat`**
+ادخل المجلد → افتح مجلد **`scripts`** → **انقر مرتين على `start.bat`**
 
 الملف يسألك عن التوكن ويفتح Notepad تلقائياً، ويثبّت الحزم، ويشغّل البوت. خلاص! ✅
 
 > 💡 ما تحتاج تعرف أي أمر — الملف يعمل كل شيء.
+
+### 3️⃣ لو أردت الطرفية (cmd) — افتحها في المجلد الصحيح
+
+أشهر خطأ: تشغيل `npm start` وانت في `C:\Users\Administrator` فيطلع:
+```
+npm error code ENOENT ... Could not read package.json
+```
+معناها أنك **في المجلد الخطأ** — npm يدور على `package.json` وهو مش هنا.
+
+**أسهل حل:** افتح مجلد المشروع في File Explorer، اضغط على **شريط المسار**
+(اللي يكتب فيه المسار) واكتب `cmd` ثم Enter → تنفتح طرفية **داخل المجلد** ✅
+
+**أو يدوياً:**
+```cmd
+cd /d %USERPROFILE%\Downloads\Anvesment-arena-eaf0e7c0-anvesment
+npm install
+npm start
+```
+> لو استخرجت المجلد في مكان آخر (سطح المكتب مثلاً)، غيّر المسار:
+> `cd /d %USERPROFILE%\Desktop\Anvesment-arena-eaf0e7c0-anvesment`
 
 ---
 
@@ -58,7 +84,11 @@ cd Anvesment
 git checkout arena/eaf0e7c0-anvesment
 ```
 
-**أو بدون git:** حمّل ZIP من الزر الأخضر `<> Code` ← Download ZIP، ثم فُكّ الضغط وادخل المجلد.
+**أو بدون git:** حمّل من الرابط المباشر للفرع (لا تستخدم زر Download ZIP — يعطيك فرع `main` الفارغ):
+```
+https://github.com/TaharBn12/Anvesment/archive/refs/heads/arena/eaf0e7c0-anvesment.zip
+```
+ثم فُكّ الضغط وادخل المجلد `Anvesment-arena-eaf0e7c0-anvesment`.
 
 ### 2️⃣ جهّز ملف الإعدادات
 
@@ -170,6 +200,8 @@ ngrok http 3000
 | `EADDRINUSE: port 3000` | المنفذ مشغول | أقفل البرنامج الآخر، أو غيّر `WEBHOOK_PORT=3001` في `.env` |
 | البوت يرد ثم يتوقف | انتهت الجلسة أو الشبكة | راجع السجل؛ أعد `npm start` |
 | فقدت الأرصدة بعد إعادة التثبيت | حذفت مجلد `data/` | لا تحذف `data/bot.db` أبداً — فيه كل شيء |
+| `npm error code ENOENT ... Could not read package.json` | أنت في المجلد الخطأ | `cd /d` إلى مجلد المشروع (انظر القسم 3️⃣ أعلاه) |
+| `npm error code ENOENT` بعد ما دخلت المجلد الصح | المجلد فاضي — حمّلت من فرع `main` الفارغ | أعد التحميل من الرابط المباشر للفرع (انظر القسم 1️⃣) |
 | `npm install` يفشل | شبكة أو صلاحيات | جرّب على شبكة أخرى، أو شغّل الطرفية كمسؤول (Run as Administrator) |
 
 ---

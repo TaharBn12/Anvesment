@@ -31,6 +31,12 @@ npm start
 
 ثم افتح تلغرام وأرسل `/start` للبوت.
 
+> ⚠️ **تنبيه مهم للتحميل:** كل الكود موجود على الفرع
+> `arena/eaf0e7c0-anvesment` — فرع `main` فارغ. لو حمّلت ZIP من زر
+> **Download ZIP** في صفحة GitHub ستاخذ نسخة فاضية!
+> حمّل من الرابط المباشر:
+> `https://github.com/TaharBn12/Anvesment/archive/refs/heads/arena/eaf0e7c0-anvesment.zip`
+
 📖 **الدليل المفصّل خطوة بخطوة** (BotFather، NOWPayments، ngrok، النشر): [`docs/SETUP_AR.md`](docs/SETUP_AR.md)
 
 📱 **تريد التشغيل من الهاتف؟** (Koyeb بدون طرفية، Termux لأندرويد): [`docs/DEPLOY_AR.md`](docs/DEPLOY_AR.md)
