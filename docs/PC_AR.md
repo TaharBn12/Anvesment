@@ -14,7 +14,7 @@
 افتح هذا الرابط في المتصفح، واضغط يمين ← **حفظ باسم** / Save as:
 
 ```
-https://raw.githubusercontent.com/TaharBn12/Anvesment/main/scripts/install-windows.bat
+https://raw.githubusercontent.com/TaharBn12/Anvesment/arena/ae4be482-anvesment/scripts/install-windows.bat
 ```
 
 ### 2️⃣ شغّله
