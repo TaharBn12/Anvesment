@@ -37,6 +37,7 @@ npm start
 
 ☁️ **النشر على Koyeb المجاني** (دليل كامل + حلول النوم وفقدان البيانات): [`docs/KOYEB_AR.md`](docs/KOYEB_AR.md)
 🍎 **عندك آيفون وتريد iSH؟** (لماذا لا يعمل داخله + الطريق الصحيح SSH): [`docs/ISH_AR.md`](docs/ISH_AR.md)
+💻 **تشغيل على الكمبيوتر** (Windows بنقرة واحدة / Mac / Linux): [`docs/PC_AR.md`](docs/PC_AR.md)
 
 ## 🧪 اختبار ذاتي بدون مفاتيح حقيقية
 
