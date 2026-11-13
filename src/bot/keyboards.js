@@ -20,6 +20,18 @@ export function walletActionsKeyboard() {
       Markup.button.callback('📥 إيداعاتي', 'wallet_deposits'),
     ],
     [Markup.button.callback('📤 سحوباتي', 'wallet_withdrawals')],
+    [Markup.button.callback('🤝 رابط الإحالة', 'wallet_referral')],
+  ]);
+}
+
+/** أزرار مشاركة رابط الإحالة */
+export function referralKeyboard(link) {
+  if (!link) return Markup.inlineKeyboard([]);
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(link)}` +
+    `&text=${encodeURIComponent('🚀 بوت استثمار بربح يومي — سجّل عبر رابطه:')}`;
+  return Markup.inlineKeyboard([
+    [Markup.button.url('📤 مشاركة الرابط', shareUrl)],
+    [Markup.button.url('🔗 فتح الرابط', link)],
   ]);
 }
 

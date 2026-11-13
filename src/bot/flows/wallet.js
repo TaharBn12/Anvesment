@@ -1,7 +1,8 @@
 import { messages } from '../messages.js';
 import { getUserInvestments } from '../../services/investments.js';
 import { getTransactions } from '../../services/wallet.js';
-import { mainMenu, walletActionsKeyboard } from '../keyboards.js';
+import { buildReferralLink, resolveBotUsername, referralStats } from '../../services/referrals.js';
+import { mainMenu, walletActionsKeyboard, referralKeyboard } from '../keyboards.js';
 
 export function registerWalletHandlers(bot) {
   bot.hears('💼 محفظتي', async (ctx) => {
@@ -18,6 +19,16 @@ export function registerWalletHandlers(bot) {
       `🧾 <b>آخر العمليات</b>\n\n${messages.transactionsText(txs)}`,
       mainMenu()
     );
+  });
+
+  // رابط الإحالة + إحصائياتها
+  bot.action('wallet_referral', async (ctx) => {
+    await ctx.answerCbQuery();
+    const user = ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(ctx.from.id);
+    const botUsername = await resolveBotUsername(ctx);
+    const link = buildReferralLink(ctx.db, ctx.from.id, botUsername);
+    const stats = referralStats(ctx.db, ctx.from.id);
+    await ctx.replyWithHTML(messages.referralText(user, link, stats), referralKeyboard(link));
   });
 
   // إيداعاتي السابقة

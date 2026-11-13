@@ -40,6 +40,7 @@ npm start
 ☁️ **النشر على Render** (Blueprint بضغطة + حل فقدان البيانات): [`docs/RENDER_AR.md`](docs/RENDER_AR.md)
 🍎 **عندك آيفون وتريد iSH؟** (لماذا لا يعمل داخله + الطريق الصحيح SSH): [`docs/ISH_AR.md`](docs/ISH_AR.md)
 💻 **تشغيل على الكمبيوتر** (Windows بنقرة واحدة / Mac / Linux): [`docs/PC_AR.md`](docs/PC_AR.md)
+🤝 **نظام الإحالة** (رابط خاص + 20$ لكل صديق يُودع): [`docs/REFERRAL_AR.md`](docs/REFERRAL_AR.md)
 
 ## 🧪 اختبار ذاتي بدون مفاتيح حقيقية
 
