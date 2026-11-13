@@ -86,6 +86,20 @@ export async function createInvoice({
     ipn_callback_url: ipnCallbackUrl,
   };
   const { data } = await api.post('/v1/invoice', body);
+
+  // ---- تحقق من الاستجابة قبل استخدامها ----
+  // NOWPayments قد يعيد كائن خطأ (200) بدل الفاتورة — مثلاً مفتاح خاطئ،
+  // أو عملة غير مدعومة للحساب، أو حساب غير موثّق. بدون هالتحقق يمرّ
+  // pay_address = undefined لمكتبة QR فتظهر رسالة غامضة:
+  //   "String required as first argument"
+  // وتُخفي السبب الحقيقي عن المستخدم.
+  if (!data || typeof data.pay_address !== 'string' || data.pay_address.length === 0) {
+    const apiMsg = data && (data.message || data.error || data.code || data.status_message);
+    const snippet = data ? ` — الاستجابة: ${JSON.stringify(data).slice(0, 300)}` : ' — لا استجابة';
+    throw new Error(
+      `NOWPayments لم يُعد عنوان دفع${apiMsg ? ` (${apiMsg})` : ''}${snippet}`
+    );
+  }
   return data;
 }
 

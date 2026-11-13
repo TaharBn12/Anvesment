@@ -100,9 +100,13 @@ export function registerDepositHandlers(bot) {
       await ctx.replyWithPhoto({ source: qrBuffer }, { caption, parse_mode: 'HTML' });
       logger.info(`فاتورة إيداع جديدة: مستخدم ${ctx.from.id} — ${amountUsd}$ بـ ${code}`);
     } catch (err) {
-      logger.error('فشل إنشاء فاتورة الإيداع:', err.message);
+      // استجابة NOWPayments عند الأخطاء (401 مفتاح خاطئ، عملة غير مدعومة...)
+      const apiDetail = err.response?.data
+        ? `\nاستجابة NOWPayments: <code>${JSON.stringify(err.response.data).slice(0, 200)}</code>`
+        : '';
+      logger.error('فشل إنشاء فاتورة الإيداع:', err.message, apiDetail ? JSON.stringify(err.response.data) : '');
       await ctx.replyWithHTML(
-        `❌ فشل إنشاء عنوان الدفع.\nالسبب: <code>${err.message}</code>\n` +
+        `❌ فشل إنشاء عنوان الدفع.\nالسبب: <code>${err.message}</code>${apiDetail}\n` +
         `تأكد من مفتاح NOWPayments وحاول لاحقاً.`,
         mainMenu()
       );
