@@ -23,6 +23,14 @@ export function walletActionsKeyboard() {
   ]);
 }
 
+/** زر فتح صفحة الدفع — يُستخدم لما NOWPayments يرجع رابطاً بدل عنوان */
+export function depositPayLinkKeyboard(url) {
+  return Markup.inlineKeyboard([
+    [Markup.button.url('💳 ادفع الآن', url)],
+    [Markup.button.callback('🔄 تحديث حالة الدفع', 'dep_check')],
+  ]);
+}
+
 /** اختيار عملة الإيداع */
 export function depositCurrencyKeyboard(currencies = DEFAULT_DEPOSIT_CURRENCIES) {
   const rows = [];

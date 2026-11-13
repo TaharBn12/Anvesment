@@ -196,14 +196,17 @@ async function main() {
     console.log('\n2️⃣ الإيداع');
     await step('ضغط إيداع → طلب المبلغ', updateMessage(USER_ID, '💰 إيداع'), 'إيداع جديد');
     await stepButton('أدخل 60$ → عرض العملات', updateMessage(USER_ID, '60'), 'dep_cur:usdttrc20');
-    await step('اختيار USDT-TRC20 → العنوان + QR', updateCallback(USER_ID, 'dep_cur:usdttrc20'), 'تفاصيل الإيداع');
-    check('أُرسل رمز QR للعنوان', mocks.telegram.sent.some((m) => m.method === 'sendPhoto'));
+    await step('اختيار USDT-TRC20 → رسالة العنوان البسيطة', updateCallback(USER_ID, 'dep_cur:usdttrc20'), 'إلى هذا العنوان');
+    check('أُرسل العنوان في رسالة نصية', mocks.telegram.sent.some((m) => m.method === 'sendMessage'));
+    check('ما أُرسل رمز QR (التدفق مبسّط)', !mocks.telegram.sent.some((m) => m.method === 'sendPhoto'));
     check('أُنشئت الفاتورة في NOWPayments', mocks.nowpayments.invoices.size === 1);
     const invoiceId = [...mocks.nowpayments.invoices.keys()][0];
-    const photoMsg = mocks.telegram.sent.find((m) => m.method === 'sendPhoto');
-    check('التعليق يحتوي عنوان الإيداع الفعلي',
-      Boolean(photoMsg?.body?.caption?.includes(mocks.nowpayments.invoices.get(invoiceId).pay_address)),
-      photoMsg?.body?.caption?.slice(0, 60));
+    const addrMsg = mocks.telegram.sent.filter((m) => m.method === 'sendMessage').slice(-1)[0];
+    check('الرسالة تحتوي عنوان الإيداع الفعلي',
+      Boolean(addrMsg?.body?.text?.includes(mocks.nowpayments.invoices.get(invoiceId).pay_address)),
+      addrMsg?.body?.text?.slice(0, 80));
+    check('الرسالة تَعِد بإشعار عند وصول المبلغ',
+      Boolean(addrMsg?.body?.text?.includes('سنخبرك تلقائياً عند وصول المبلغ')));
     check('حُفظت الفاتورة في قاعدة البيانات',
       Number(db.prepare('SELECT COUNT(*) AS n FROM deposits').get().n) === 1);
 
@@ -235,6 +238,34 @@ async function main() {
       Number(db.prepare('SELECT COUNT(*) AS n FROM deposits').get().n) === 1);
     check('حالة المستخدم نُظّفت بعد الفشل',
       (db.prepare('SELECT state FROM users WHERE id = ?').get(USER_ID)?.state ?? 'idle') === 'idle');
+
+    // ============ 2ج) صفحة دفع مستضافة (invoice_url بدون عنوان) ============
+    // انحدار: NOWPayments يرجع أحياناً صفحة دفع بدل عنوان مباشر — كان
+    // البوت يفشل بالكامل، وصار يعرض رابط الدفع ويكمل التدفق.
+    console.log('\n2ج️⃣ صفحة دفع مستضافة (رابط بدل عنوان)');
+    await fetch(`http://127.0.0.1:${mocks.nowpaymentsPort}/_test/invoice/hosted-next`, { method: 'POST' });
+    await step('إيداع → طلب المبلغ', updateMessage(USER_ID, '💰 إيداع'), 'إيداع جديد');
+    await step('أدخل 30$ → عرض العملات', updateMessage(USER_ID, '30'), 'اختر العملة');
+    const gotLink = await step(
+      'الرسالة تعرض رابط الدفع بدل العنوان',
+      updateCallback(USER_ID, 'dep_cur:usdttrc20'),
+      'اضغط الزر بالأسفل لفتح صفحة الدفع'
+    );
+
+    if (gotLink) {
+      const sent = mocks.telegram.sent.filter((m) => m.method === 'sendMessage');
+      const linkMsg = sent[sent.length - 1];
+      const markup = JSON.stringify(linkMsg?.body?.reply_markup || {});
+      check('الزر يحتوي رابط صفحة الدفع', markup.includes('nowpayments.io/payment/?iid='), markup.slice(0, 120));
+      check('الزر يحتوي زر تحديث الحالة', markup.includes('dep_check'));
+    } else {
+      check('الزر يحتوي رابط صفحة الدفع', false, 'ما ظهرت رسالة الرابط');
+      check('الزر يحتوي زر تحديث الحالة', false, 'ما ظهرت رسالة الرابط');
+    }
+    check('حُفظت الفاتورة بلا عنوان في القاعدة',
+      Number(db.prepare('SELECT COUNT(*) AS n FROM deposits WHERE pay_address IS NULL').get().n) === 1);
+    check('ما أُرسل QR في تدفق صفحة الدفع',
+      mocks.telegram.sent.slice(-2).every((m) => m.method !== 'sendPhoto'));
 
     // ============ 3) الدفع الفعلي + الإشعار ============
     console.log('\n3️⃣ الدفع والإشعار (IPN)');
