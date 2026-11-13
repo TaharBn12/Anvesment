@@ -1,0 +1,53 @@
+# ============================================================
+#  مخطط Render (Blueprint) — نشر البوت بضغطة واحدة
+#
+#  الطريقة: من لوحة Render ← New + ← Blueprint ← اختر هذا المستودع
+#  وسيقرأ Render هذا الملف تلقائياً ويجهّز كل شيء.
+#
+#  ملاحظة: الخطة المجانية على Render تفقد الملفات المحلية عند كل
+#  إعادة تشغيل/نشر — انظر docs/RENDER_AR.md قبل الاستخدام الحقيقي.
+# ============================================================
+
+services:
+  - type: web
+    name: investment-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: frankfurt # فرانكفورت — الأقرب للجزائر/أوروبا
+    branch: main
+    autoDeploy: true
+
+    # فحص الصحة — يمنع Render من اعتبار الخدمة فاشلة
+    healthCheckPath: /health
+
+    envVars:
+      # ---- أسرار: تملأها أنت من لوحة Render بعد الإنشاء ----
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: NOWPAYMENTS_API_KEY
+        sync: false
+      - key: NOWPAYMENTS_IPN_SECRET
+        sync: false
+
+      # ---- إعدادات جاهزة ----
+      - key: CURRENCY
+        value: usd
+      - key: MIN_DEPOSIT
+        value: "10"
+      - key: MIN_WITHDRAW
+        value: "5"
+      - key: PAYOUT_HOUR
+        value: "0"
+      - key: DEPOSIT_POLL_SECONDS
+        value: "60"
+
+      # ---- منع النوم: Render المجاني ينام بعد 15 دقيقة ----
+      # النبضة كل 10 دقائق تُبقيه شغّالاً.
+      # ⚠️ تحقق من الرابط بعد أول نشر إن كان اسم الخدمة مختلفاً.
+      - key: SELF_PING_MINUTES
+        value: "10"
+      - key: SELF_PING_URL
+        value: https://investment-bot.onrender.com/health
