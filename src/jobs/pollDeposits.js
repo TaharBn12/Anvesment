@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { config } from '../config.js';
 import { getPendingDeposits, handlePaymentUpdate, creditDeposit } from '../services/deposits.js';
-import { getInvoice } from '../api/nowpayments.js';
+import { getPaymentStatus } from '../api/nowpayments.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -22,7 +22,7 @@ export function startDepositPollJob(db, notify) {
     let changed = 0;
     for (const dep of pending) {
       try {
-        const invoice = await getInvoice(dep.invoice_id);
+        const invoice = await getPaymentStatus(dep.invoice_id);
         const before = dep.status;
         const result = handlePaymentUpdate(db, invoice, notify);
         if (result !== 'ignored' && invoice.payment_status !== before) changed++;

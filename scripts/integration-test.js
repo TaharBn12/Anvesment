@@ -199,21 +199,32 @@ async function main() {
     await step('اختيار USDT-TRC20 → رسالة العنوان البسيطة', updateCallback(USER_ID, 'dep_cur:usdttrc20'), 'إلى هذا العنوان');
     check('أُرسل العنوان في رسالة نصية', mocks.telegram.sent.some((m) => m.method === 'sendMessage'));
     check('ما أُرسل رمز QR (التدفق مبسّط)', !mocks.telegram.sent.some((m) => m.method === 'sendPhoto'));
-    check('أُنشئت الفاتورة في NOWPayments', mocks.nowpayments.invoices.size === 1);
-    const invoiceId = [...mocks.nowpayments.invoices.keys()][0];
+    // انحدار: نقطة /v1/payment هي اللي تُرجع عنواناً فعلياً — لو رجعنا
+    // لـ /v1/invoice ما يوصل العنوان للمحادثة (صفحة دفع بدله).
+    check('استُدعيت نقطة الدفع المباشر (لا الفاتورة)', mocks.nowpayments.payments.size === 1,
+      `payments=${mocks.nowpayments.payments.size} invoices=${mocks.nowpayments.invoices.size}`);
+    const invoiceId = [...mocks.nowpayments.payments.keys()][0];
     const addrMsg = mocks.telegram.sent.filter((m) => m.method === 'sendMessage').slice(-1)[0];
     check('الرسالة تحتوي عنوان الإيداع الفعلي',
-      Boolean(addrMsg?.body?.text?.includes(mocks.nowpayments.invoices.get(invoiceId).pay_address)),
+      Boolean(addrMsg?.body?.text?.includes(mocks.nowpayments.payments.get(invoiceId).pay_address)),
       addrMsg?.body?.text?.slice(0, 80));
+    check('الرسالة تحتوي الكمية المطلوبة',
+      Boolean(addrMsg?.body?.text?.includes('📦 الكمية المطلوبة')),
+      addrMsg?.body?.text?.slice(0, 100));
     check('الرسالة تَعِد بإشعار عند وصول المبلغ',
       Boolean(addrMsg?.body?.text?.includes('سنخبرك تلقائياً عند وصول المبلغ')));
-    check('حُفظت الفاتورة في قاعدة البيانات',
+    check('حُفظت العملية في قاعدة البيانات',
       Number(db.prepare('SELECT COUNT(*) AS n FROM deposits').get().n) === 1);
+    check('المعرّف المخزّن هو payment_id',
+      db.prepare('SELECT invoice_id FROM deposits').get().invoice_id === invoiceId,
+      db.prepare('SELECT invoice_id FROM deposits').get().invoice_id);
 
     // ============ 2ب) فشل NOWPayments → رسالة واضحة ============
     // انحدار: كان pay_address = undefined يمرّ لمكتبة QR فتظهر
     // "String required as first argument" وتُخفي السبب الحقيقي.
     console.log('\n2ب️⃣ فشل NOWPayments (استجابة بدون عنوان دفع)');
+    // نُفشل النقطتين معاً: الدفع المباشر ثم الخطة البديلة (الفاتورة)
+    await fetch(`http://127.0.0.1:${mocks.nowpaymentsPort}/_test/payment/fail-next`, { method: 'POST' });
     await fetch(`http://127.0.0.1:${mocks.nowpaymentsPort}/_test/invoice/fail-next`, { method: 'POST' });
     await step('إيداع → طلب المبلغ', updateMessage(USER_ID, '💰 إيداع'), 'إيداع جديد');
     await step('أدخل 25$ → عرض العملات', updateMessage(USER_ID, '25'), 'اختر العملة');
@@ -239,10 +250,12 @@ async function main() {
     check('حالة المستخدم نُظّفت بعد الفشل',
       (db.prepare('SELECT state FROM users WHERE id = ?').get(USER_ID)?.state ?? 'idle') === 'idle');
 
-    // ============ 2ج) صفحة دفع مستضافة (invoice_url بدون عنوان) ============
-    // انحدار: NOWPayments يرجع أحياناً صفحة دفع بدل عنوان مباشر — كان
-    // البوت يفشل بالكامل، وصار يعرض رابط الدفع ويكمل التدفق.
-    console.log('\n2ج️⃣ صفحة دفع مستضافة (رابط بدل عنوان)');
+    // ============ 2ج) الخطة البديلة: صفحة دفع مستضافة ============
+    // انحدار: بعض الحسابات ما تدعمش /v1/payment — البوت يرجع تلقائياً
+    // لنقطة الفاتورة ويعرض رابط صفحة الدفع بدل ما يفشل.
+    console.log('\n2ج️⃣ صفحة دفع مستضافة (خطة بديلة)');
+    // نفشّل الدفع المباشر فقط، فالرجوع للفاتورة ينجح ويعيد صفحة دفع
+    await fetch(`http://127.0.0.1:${mocks.nowpaymentsPort}/_test/payment/fail-next`, { method: 'POST' });
     await fetch(`http://127.0.0.1:${mocks.nowpaymentsPort}/_test/invoice/hosted-next`, { method: 'POST' });
     await step('إيداع → طلب المبلغ', updateMessage(USER_ID, '💰 إيداع'), 'إيداع جديد');
     await step('أدخل 30$ → عرض العملات', updateMessage(USER_ID, '30'), 'اختر العملة');
@@ -273,9 +286,11 @@ async function main() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ payment_status: 'finished', actually_paid: '60.6' }),
     });
-    const invoice = mocks.nowpayments.invoices.get(invoiceId);
+    const invoice = mocks.nowpayments.payments.get(invoiceId);
+    // الدفعات المباشرة ترسل payment_id مو invoice_id — تحقق أن المعالِج
+    // يقبل الاثنين (لو قبل invoice_id فقط ما يوصلك أي إشعار).
     const ipnPayload = {
-      payment_status: 'finished', invoice_id: invoiceId, pay_address: invoice.pay_address,
+      payment_status: 'finished', payment_id: invoiceId, pay_address: invoice.pay_address,
       pay_amount: String(invoice.pay_amount), actually_paid: '60.6', pay_currency: 'usdttrc20',
       price_amount: 60, price_currency: 'usd', order_id: invoice.order_id,
       order_description: 'إيداع', purchase_id: `p_${invoiceId}`,
@@ -307,6 +322,21 @@ async function main() {
       body: JSON.stringify(ipnPayload),
     });
     check('إشعار بتوقيع خاطئ مرفوض (401)', badRes.status === 401);
+
+    // ============ 3ب) زر «تحديث حالة الدفع» ============
+    // الزر يستعلم NOWPayments عبر نقطة /v1/payment — تحقق أن الاستعلام
+    // ينجح ويعرض الحالة للمستخدم.
+    console.log('\n3ب️⃣ تحديث حالة الدفع يدوياً');
+    await step('إيداع → طلب المبلغ', updateMessage(USER_ID, '💰 إيداع'), 'إيداع جديد');
+    await stepButton('أدخل 40$ → عرض العملات', updateMessage(USER_ID, '40'), 'dep_cur:usdttrc20');
+    await step('اختيار العملة → رسالة العنوان', updateCallback(USER_ID, 'dep_cur:usdttrc20'), 'إلى هذا العنوان');
+    const newPayId = [...mocks.nowpayments.payments.keys()].pop();
+    check('أُنشئت دفعة ثانية', Boolean(newPayId), `العدد: ${mocks.nowpayments.payments.size}`);
+    await step('زر تحديث الحالة → يعرض الحالة الفعلية', updateCallback(USER_ID, 'dep_check'), 'حالة إيداعك');
+    const statusMsg = mocks.telegram.sent.filter((m) => m.method === 'sendMessage').slice(-1)[0];
+    check('الحالة المعروضة هي الحالة الفعلية (waiting)',
+      Boolean(statusMsg?.body?.text?.includes('waiting')),
+      statusMsg?.body?.text?.slice(0, 100));
 
     // ============ 4) الاستثمار ============
     console.log('\n4️⃣ الاستثمار');

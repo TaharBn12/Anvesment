@@ -103,7 +103,7 @@ export function creditDeposit(db, deposit, notify = null) {
     `✅ <b>تم تأكيد إيداعك!</b>\n\n` +
     `💵 المبلغ المضاف: <b>${fromMicro(amountMicro).toFixed(2)}$</b>\n` +
     `🪙 العملة: ${deposit.pay_currency?.toUpperCase()}\n` +
-    `🧾 الفاتورة: <code>${deposit.invoice_id}</code>\n\n` +
+    `🧾 رقم العملية: <code>${deposit.invoice_id}</code>\n\n` +
     `يمكنك الآن استثمار مبلغك من قسم 📈 الاستثمار.`
   );
   return { alreadyCredited: false, amountMicro };
@@ -114,9 +114,12 @@ export function creditDeposit(db, deposit, notify = null) {
  * يعيد: 'credited' | 'updated' | 'ignored'
  */
 export function handlePaymentUpdate(db, payload, notify = null) {
-  const deposit = getDepositByInvoice(db, String(payload.invoice_id));
+  // الدفعات المباشرة ترسل payment_id، والفواتير ترسل invoice_id —
+  // نقبل الاثنين عشان الإضافة تشتغل في الحالتين.
+  const reference = String(payload.payment_id ?? payload.invoice_id ?? '');
+  const deposit = getDepositByInvoice(db, reference);
   if (!deposit) {
-    logger.warn('إشعار لفاتورة غير معروفة:', payload.invoice_id);
+    logger.warn('إشعار لعملية غير معروفة:', reference);
     return 'ignored';
   }
 
@@ -136,7 +139,7 @@ export function handlePaymentUpdate(db, payload, notify = null) {
 
   if (['failed', 'expired', 'refunded'].includes(status)) {
     notify?.(deposit.user_id,
-      `❌ <b>فشل الإيداع</b>\n\nالفاتورة: <code>${deposit.invoice_id}</code>\n` +
+      `❌ <b>فشل الإيداع</b>\n\nرقم العملية: <code>${deposit.invoice_id}</code>\n` +
       `الحالة: ${status}\nيمكنك إنشاء إيداع جديد من قسم 💰 الإيداع.`
     );
     return 'updated';
@@ -144,7 +147,7 @@ export function handlePaymentUpdate(db, payload, notify = null) {
 
   if (status === 'partially_paid') {
     notify?.(deposit.user_id,
-      `⚠️ <b>دفعة جزئية</b>\n\nالفاتورة: <code>${deposit.invoice_id}</code>\n` +
+      `⚠️ <b>دفعة جزئية</b>\n\nرقم العملية: <code>${deposit.invoice_id}</code>\n` +
       `المدفوع فعلياً: ${payload.actually_paid} ${deposit.pay_currency?.toUpperCase()}\n` +
       `سيُضاف المبلغ المدفوع فقط إلى رصيدك تلقائياً.`
     );

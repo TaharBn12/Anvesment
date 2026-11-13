@@ -163,7 +163,15 @@ export function startMocks(options = {}) {
     const npApp = express();
     npApp.use(express.json());
 
-    const np = { invoices: new Map(), payouts: [], counter: Number(options.invoiceCounterStart ?? 5000), failNextInvoice: false, hostNextInvoice: false };
+    const np = {
+      invoices: new Map(),
+      payments: new Map(),
+      payouts: [],
+      counter: Number(options.invoiceCounterStart ?? 5000),
+      failNextInvoice: false,
+      failNextPayment: false,
+      hostNextInvoice: false,
+    };
 
     npApp.get('/v1/status', (req, res) => res.json({ message: 'OK' }));
     npApp.get('/v1/currencies', (req, res) =>
@@ -174,6 +182,43 @@ export function startMocks(options = {}) {
       const amount = Number(req.query.amount ?? 0);
       res.json({ estimated_amount: Number((amount * 1.01).toFixed(6)) });
     });
+    // نقطة الدفع المباشر: هي الوحيدة اللي تُرجع pay_address فعلاً،
+    // وهذي اللي يستخدمها البوت عشان يرسل عنوان المحفظة للمحادثة.
+    npApp.post('/v1/payment', (req, res) => {
+      const id = String(++np.counter);
+
+      if (np.failNextPayment) {
+        np.failNextPayment = false;
+        return res.json({ status: false, message: 'Invalid API key' });
+      }
+
+      const payment = {
+        payment_id: id,
+        payment_status: 'waiting',
+        pay_address: `TMockDeposit${id}TRONaddressABCDEF`,
+        price_amount: req.body.price_amount,
+        price_currency: req.body.price_currency || 'usd',
+        pay_amount: Number((Number(req.body.price_amount) * 1.01).toFixed(6)),
+        actually_paid: 0,
+        pay_currency: req.body.pay_currency,
+        order_id: req.body.order_id,
+        order_description: req.body.order_description,
+        ipn_callback_url: req.body.ipn_callback_url ?? null,
+        payin_extra_id: null,
+        purchase_id: `p_${id}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      np.payments.set(id, payment);
+      res.json(payment);
+    });
+
+    npApp.get('/v1/payment/:id', (req, res) => {
+      const pay = np.payments.get(req.params.id);
+      if (!pay) return res.status(404).json({ message: 'payment not found' });
+      res.json(pay);
+    });
+
     npApp.post('/v1/invoice', (req, res) => {
       const id = String(++np.counter);
 
@@ -237,8 +282,11 @@ export function startMocks(options = {}) {
       np.payouts.push(payout);
       res.json(payout);
     });
+    // يبحث في الدفعات المباشرة والفواتير معاً — كلاهما «عملية إيداع»
+    const findRecord = (id) => np.payments.get(id) || np.invoices.get(id);
+
     npApp.post('/_test/invoice/:id/status', (req, res) => {
-      const inv = np.invoices.get(req.params.id);
+      const inv = findRecord(req.params.id);
       if (!inv) return res.status(404).json({ message: 'not found' });
       if (req.body.payment_status) inv.payment_status = req.body.payment_status;
       if (req.body.actually_paid) inv.actually_paid = req.body.actually_paid;
@@ -246,8 +294,14 @@ export function startMocks(options = {}) {
       res.json(inv);
     });
 
-    // وضع الفشل (للاختبارات): الطلب القادم لإنشاء فاتورة يعيد كائن خطأ
-    // بدون pay_address — يسبّب خطأ QR الغامض لو ما تحقّقنا من الاستجابة.
+    // وضع الفشل (للاختبارات): الطلب القادم لإنشاء دفعة يعيد كائن خطأ
+    // بدون pay_address — يسبّب الخطأ الغامض لو ما تحقّقنا من الاستجابة.
+    npApp.post('/_test/payment/fail-next', (req, res) => {
+      np.failNextPayment = true;
+      res.json({ ok: true });
+    });
+
+    // نفس الوضع لنقطة الفاتورة (الخطة البديلة)
     npApp.post('/_test/invoice/fail-next', (req, res) => {
       np.failNextInvoice = true;
       res.json({ ok: true });
@@ -328,16 +382,17 @@ export function startMocks(options = {}) {
       res.json({ messages: tg.chatLog.filter((m) => m.id > since), cursor: tg.chatCursor });
     });
 
-    // لوحة NOWPayments التجريبية: قائمة الفواتير المعلّقة
+    // لوحة NOWPayments التجريبية: قائمة العمليات المعلّقة
+    // (دفعات مباشرة + فواتير — الاثنين يُعرضان في نفس اللوحة)
     tgApp.get('/api/invoices', (req, res) => {
-      res.json({ invoices: [...np.invoices.values()] });
+      res.json({ invoices: [...np.payments.values(), ...np.invoices.values()] });
     });
 
     // محاكاة دفع فاتورة + إرسال إشعار IPN حقيقي للبوت
     tgApp.post('/api/simulate-payment', async (req, res) => {
       const invoiceId = String(req.body?.invoiceId ?? '');
       const status = String(req.body?.status ?? 'finished');
-      const inv = np.invoices.get(invoiceId);
+      const inv = np.payments.get(invoiceId) || np.invoices.get(invoiceId);
       if (!inv) return res.status(404).json({ error: 'invoice not found' });
       inv.payment_status = status;
       inv.actually_paid = String(inv.pay_amount);
@@ -345,12 +400,15 @@ export function startMocks(options = {}) {
       // إرسال إشعار IPN موقّع إلى خادم البوت (كما يفعل NOWPayments الحقيقي)
       const ipnPort = options.appWebhookPort;
       if (!ipnPort) return res.json({ ok: true, note: 'no app webhook port configured' });
+      // الدفعات المباشرة ترسل payment_id بدل invoice_id
+      const isPayment = np.payments.has(invoiceId);
       const payload = {
-        payment_status: status, invoice_id: invoiceId, pay_address: inv.pay_address,
+        payment_status: status, pay_address: inv.pay_address,
         pay_amount: String(inv.pay_amount), actually_paid: inv.actually_paid,
         pay_currency: inv.pay_currency, price_amount: inv.price_amount,
         price_currency: inv.price_currency, order_id: inv.order_id,
         order_description: inv.order_description, purchase_id: `p_${invoiceId}`,
+        ...(isPayment ? { payment_id: invoiceId } : { invoice_id: invoiceId }),
       };
       const crypto = await import('node:crypto');
       const sorted = (o) => {

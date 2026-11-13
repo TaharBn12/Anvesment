@@ -1,7 +1,7 @@
 import { config } from '../../config.js';
 import { setState, clearState, getState } from '../../services/users.js';
 import { createDeposit, generateOrderId, getUserDeposits } from '../../services/deposits.js';
-import { createInvoice, getMinimumPaymentAmount, getEstimate, filterSupportedCurrencies, getInvoice } from '../../api/nowpayments.js';
+import { createPayment, createInvoice, getMinimumPaymentAmount, getEstimate, filterSupportedCurrencies, getPaymentStatus } from '../../api/nowpayments.js';
 import { DEFAULT_DEPOSIT_CURRENCIES, STATES, SUCCESS_PAYMENT_STATUSES } from '../../constants.js';
 import { parsePositiveAmount, toMicro, fromMicro } from '../../utils/money.js';
 import { depositCurrencyKeyboard, depositPayLinkKeyboard, mainMenu, backKeyboard } from '../keyboards.js';
@@ -46,7 +46,7 @@ export function registerDepositHandlers(bot) {
         await ctx.replyWithHTML('ما عندك إيداعات سابقة.', mainMenu());
         return;
       }
-      const invoice = await getInvoice(String(last.invoice_id));
+      const invoice = await getPaymentStatus(String(last.invoice_id));
       const status = String(invoice.payment_status || last.status);
       const paid = SUCCESS_PAYMENT_STATUSES.includes(status);
 
@@ -97,17 +97,40 @@ export function registerDepositHandlers(bot) {
       }
 
       const orderId = generateOrderId(ctx.from.id);
-      const invoice = await createInvoice({
-        priceAmount: amountUsd,
-        payCurrency: code,
-        orderId,
-        orderDescription: `إيداع ${amountUsd}$ — مستخدم ${ctx.from.id}`,
-        ipnCallbackUrl: ipnCallbackUrl(),
-      });
+
+      // ---- إنشاء عملية الدفع ----
+      // نبدأ بنقطة /v1/payment لأنها الوحيدة اللي تُرجع عنوان محفظة فعلياً.
+      // (نقطة /v1/invoice تُرجع رابط صفحة دفع فقط — هاذا كان سبب ما
+      // يوصل العنوان للمحادثة.) ولو الحساب ما يدعمش الدفع المباشر،
+      // نرجع تلقائياً لصفحة الدفع المستضافة.
+      let invoice;
+      let isDirectPayment = true;
+      try {
+        invoice = await createPayment({
+          priceAmount: amountUsd,
+          payCurrency: code,
+          orderId,
+          orderDescription: `إيداع ${amountUsd}$ — مستخدم ${ctx.from.id}`,
+          ipnCallbackUrl: ipnCallbackUrl(),
+        });
+      } catch (paymentErr) {
+        logger.warn('تعذّر الدفع المباشر، الرجوع لصفحة الدفع:', paymentErr.message);
+        invoice = await createInvoice({
+          priceAmount: amountUsd,
+          payCurrency: code,
+          orderId,
+          orderDescription: `إيداع ${amountUsd}$ — مستخدم ${ctx.from.id}`,
+          ipnCallbackUrl: ipnCallbackUrl(),
+        });
+        isDirectPayment = false;
+      }
+
+      // معرّف العملية عند NOWPayments: payment_id للدفع المباشر، id للفاتورة
+      const referenceId = String(invoice.payment_id ?? invoice.id);
 
       createDeposit(ctx.db, {
         userId: ctx.from.id,
-        invoiceId: String(invoice.id),
+        invoiceId: referenceId,
         orderId,
         orderDesc: `إيداع ${amountUsd}$`,
         priceAmountMicro: toMicro(amountUsd),
@@ -119,19 +142,23 @@ export function registerDepositHandlers(bot) {
       clearState(ctx.db, ctx.from.id);
 
       // ---- رسالة بسيطة: العنوان فقط ----
-      // NOWPayments يرجّع إمّا عنوان دفع مباشر (pay_address) أو رابط صفحة
-      // دفع مستضافة (invoice_url) — نتعرّف على الاثنين ونعرض المناسب.
+      // نعرض العنوان متى ما توفر — سواء جاء من نقطة الدفع المباشر أو من
+      // الفاتورة (بعض الحسابات تُرجع عنواناً حتى مع الفواتير).
       const amountText = `${fromMicro(toMicro(amountUsd)).toFixed(2)}$`;
       const hasAddress = typeof invoice.pay_address === 'string' && invoice.pay_address.length > 0;
 
       if (hasAddress) {
-        // الكمية بالعملة الرقمية قد تكون مفقودة في استجابة الصفحة المستضافة
+        // الكمية المطلوبة بالعملة الرقمية
         const cryptoAmount = invoice.pay_amount
           ? `\n📦 الكمية المطلوبة: <b>${invoice.pay_amount} ${code.toUpperCase()}</b>`
           : '';
+        // بعض الشبكات (XRP, BNB, ATOM...) تتطلب Memo/Tag مع العنوان
+        const memo = invoice.payin_extra_id
+          ? `\n⚠️ <b>مطلوب كود Memo/Tag:</b> <code>${invoice.payin_extra_id}</code>`
+          : '';
         await ctx.replyWithHTML(
           `💵 أرسل <b>${amountText}</b> بعملة <b>${code.toUpperCase()}</b>\n` +
-          `🏦 إلى هذا العنوان:\n<code>${invoice.pay_address}</code>${cryptoAmount}\n\n` +
+          `🏦 إلى هذا العنوان:\n<code>${invoice.pay_address}</code>${cryptoAmount}${memo}\n\n` +
           `⏳ سنخبرك تلقائياً عند وصول المبلغ ✅`,
           mainMenu()
         );
@@ -143,8 +170,8 @@ export function registerDepositHandlers(bot) {
           depositPayLinkKeyboard(invoice.invoice_url)
         );
       }
-      logger.info(`فاتورة إيداع جديدة: مستخدم ${ctx.from.id} — ${amountUsd}$ بـ ${code}` +
-        (hasAddress ? '' : ' (صفحة دفع مستضافة)'));
+      logger.info(`عملية إيداع جديدة: مستخدم ${ctx.from.id} — ${amountUsd}$ بـ ${code}` +
+        ` (${isDirectPayment ? 'دفع مباشر' : 'فاتورة'}${hasAddress ? ' بعنوان' : ' برابط'})`);
     } catch (err) {
       // استجابة NOWPayments عند الأخطاء (401 مفتاح خاطئ، عملة غير مدعومة...)
       const apiDetail = err.response?.data

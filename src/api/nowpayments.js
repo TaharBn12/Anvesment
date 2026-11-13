@@ -69,15 +69,11 @@ export async function getEstimate(amount, currencyFrom = config.currency, curren
   return data;
 }
 
-/**
- * إنشاء فاتورة إيداع — تولّد عنوان دفع فريداً لهذه العملية
- * وهذا ما يجعل "كل مستخدم له عنوان إيداع خاص" (لكل عملية إيداع عنوان فريد)
- */
-export async function createInvoice({
-  priceAmount, priceCurrency = config.currency, payCurrency,
-  orderId, orderDescription, ipnCallbackUrl,
+/** جسم الطلب المشترك بين إنشاء الدفع المباشر وإنشاء الفاتورة */
+function buildPaymentBody({
+  priceAmount, priceCurrency, payCurrency, orderId, orderDescription, ipnCallbackUrl,
 }) {
-  const body = {
+  return {
     price_amount: priceAmount,
     price_currency: priceCurrency,
     pay_currency: payCurrency,
@@ -85,7 +81,42 @@ export async function createInvoice({
     order_description: orderDescription || `إيداع في منصة الاستثمار — ${orderId}`,
     ipn_callback_url: ipnCallbackUrl,
   };
-  const { data } = await api.post('/v1/invoice', body);
+}
+
+/**
+ * إنشاء عملية دفع مباشرة — تُرجع عنوان محفظة فعلياً (pay_address).
+ *
+ * ⚠️ لماذا مو /v1/invoice؟ نقطة الفاتورة تُرجع دائماً رابط صفحة دفع
+ * مستضافة (invoice_url) بدون عنوان — العنوان يأتي فقط من هنا.
+ * هاذا كان سبب «عنوان المحفظة ما يوصل للمحادثة».
+ */
+export async function createPayment({
+  priceAmount, priceCurrency = config.currency, payCurrency,
+  orderId, orderDescription, ipnCallbackUrl,
+}) {
+  const { data } = await api.post('/v1/payment', buildPaymentBody({
+    priceAmount, priceCurrency, payCurrency, orderId, orderDescription, ipnCallbackUrl,
+  }));
+
+  if (!data || typeof data.pay_address !== 'string' || data.pay_address.length === 0) {
+    const apiMsg = data && (data.message || data.error || data.code || data.status_message);
+    const snippet = data ? ` — الاستجابة: ${JSON.stringify(data).slice(0, 300)}` : ' — لا استجابة';
+    throw new Error(`NOWPayments لم يُعد عنوان دفع${apiMsg ? ` (${apiMsg})` : ''}${snippet}`);
+  }
+  return data;
+}
+
+/**
+ * إنشاء فاتورة إيداع — تُرجع رابط صفحة دفع مستضافة (invoice_url).
+ * تُستخدم كخطة بديلة لو الحساب ما يدعمش الدفع المباشر.
+ */
+export async function createInvoice({
+  priceAmount, priceCurrency = config.currency, payCurrency,
+  orderId, orderDescription, ipnCallbackUrl,
+}) {
+  const { data } = await api.post('/v1/invoice', buildPaymentBody({
+    priceAmount, priceCurrency, payCurrency, orderId, orderDescription, ipnCallbackUrl,
+  }));
 
   // ---- تحقق من الاستجابة قبل استخدامها ----
   // NOWPayments له نوعان من الفواتير:
@@ -110,6 +141,33 @@ export async function createInvoice({
 export async function getInvoice(invoiceId) {
   const { data } = await api.get(`/v1/invoice/${invoiceId}`);
   return data;
+}
+
+/** استعلام حالة عملية دفع مباشرة (بـ payment_id) */
+export async function getPayment(paymentId) {
+  const { data } = await api.get(`/v1/payment/${paymentId}`);
+  return data;
+}
+
+/**
+ * استعلام الحالة بأي معرّف — جرّب الدفع المباشر أولاً ثم الفاتورة.
+ * ضروري لأن السجللات القديمة تحتفظ بمعرّفات فواتير، والجديدة بدفعات.
+ */
+export async function getPaymentStatus(referenceId) {
+  try {
+    return await getPayment(referenceId);
+  } catch (err) {
+    const status = err.response?.status;
+    // 404/400 = المعرّف موجود لكنه فاتورة مو دفعة — أو غير موجود أصلاً
+    if (status === 404 || status === 400) {
+      try {
+        return await getInvoice(referenceId);
+      } catch {
+        throw err; // نُعيد خطأ الدفع لأنه الأصل
+      }
+    }
+    throw err;
+  }
 }
 
 // ============================================================
