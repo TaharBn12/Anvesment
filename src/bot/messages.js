@@ -1,4 +1,5 @@
 import { INVESTMENT_LEVELS } from '../constants.js';
+import { config } from '../config.js';
 import { formatMoney, fromMicro } from '../utils/money.js';
 import { usd } from '../utils/format.js';
 
@@ -19,6 +20,7 @@ const HELP = `ℹ️ <b>المساعدة</b>
 📈 <b>استثمار</b> — اختر أحد المستويات الخمس وأدخل المبلغ.
 📊 <b>استثماراتي</b> — تابع عقودك النشطة وأرباحها اليومية.
 💼 <b>محفظتي</b> — رصيدك وإجمالياتك وسجل عملياتك.
+🤝 <b>رابط الإحالة</b> — من محفظتك: اربح ${config.referral.bonusUsd}$ عن كل صديق يسجّل عبر رابطك ويعمل أول إيداع.
 💸 <b>سحب</b> — اسحب رصيدك إلى عنوان محفظتك.
 
 🆘 للدعم: راسل المشغّل.`;
@@ -36,6 +38,22 @@ function levelsText() {
   }
   text += `اختر المستوى المناسب لمبلغك 👇`;
   return text;
+}
+
+function referralText(user, link, stats) {
+  const earned = formatMoney(stats.earnedMicro, { decimals: 2, symbol: '$' });
+  const bonus = config.referral.bonusUsd;
+  const linkLine = link
+    ? `🔗 <b>رابطك الخاص:</b>\n<code>${link}</code>`
+    : '⚠️ تعذّر بناء الرابط — اضبط <code>BOT_USERNAME</code> في ملف .env';
+  return `🤝 <b>نظام الإحالة</b>\n\n` +
+    `💰 اربح <b>${bonus}$</b> عن كل صديق يسجّل عبر رابطك <b>ويعمل أول إيداع</b>.\n\n` +
+    `${linkLine}\n\n` +
+    `👥 عدد المدعوين: <b>${stats.invited}</b>\n` +
+    `✅ مدعوّن أودعوا: <b>${stats.paidCount}</b>\n` +
+    `⏳ في الانتظار: <b>${stats.pending}</b>\n` +
+    `💵 إجمالي أرباحك من الإحالة: <b>${earned}</b>\n\n` +
+    `📤 اضغط زر «مشاركة الرابط» بالأسفل وأرسله لأصدقائك.`;
 }
 
 function walletText(user, activeCount) {
@@ -76,5 +94,5 @@ function transactionsText(txs) {
 }
 
 export const messages = {
-  WELCOME, HELP, levelsText, walletText, investmentItemText, transactionsText,
+  WELCOME, HELP, levelsText, walletText, referralText, investmentItemText, transactionsText,
 };

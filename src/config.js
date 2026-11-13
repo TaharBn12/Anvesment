@@ -52,6 +52,17 @@ export const config = {
   minDeposit: num('MIN_DEPOSIT', 10),
   minWithdraw: num('MIN_WITHDRAW', 5),
 
+  // نظام الإحالة
+  referral: {
+    // مكافأة كل إحالة بالدولار — تُصرف لصاحب الرابط عند أول
+    // إيداع ناجح للمستخدم الذي انضم عبر رابطه.
+    // اضبطها 0 لإيقاف النظام.
+    bonusUsd: num('REFERRAL_BONUS', 20),
+    // اسم مستخدم البوت لبناء رابط الإحالة (بدون @).
+    // لو فاضي يُجلب تلقائياً من تلغرام عند التشغيل.
+    botUsername: (process.env.BOT_USERNAME || '').replace(/^@/, ''),
+  },
+
   // المهام المجدولة
   depositPollSeconds: num('DEPOSIT_POLL_SECONDS', 60),
   payoutHour: num('PAYOUT_HOUR', 0), // ساعة صرف الأرباح اليومية (0-23 بتوقيت السيرفر)

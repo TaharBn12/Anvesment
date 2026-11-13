@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { FINAL_PAYMENT_STATUSES, SUCCESS_PAYMENT_STATUSES } from '../constants.js';
 import { toMicro, fromMicro } from '../utils/money.js';
 import { creditWallet, bumpTotals } from './wallet.js';
+import { payReferralBonus } from './referrals.js';
 import logger from '../utils/logger.js';
 
 /** إنشاء طلب إيداع جديد (يُستدعى بعد إنشاء الفاتورة في NOWPayments) */
@@ -99,6 +100,15 @@ export function creditDeposit(db, deposit, notify = null) {
   }
 
   logger.ok(`إيداع ناجح: مستخدم ${deposit.user_id} بمبلغ ${fromMicro(amountMicro)} ${deposit.price_currency}`);
+
+  // مكافأة الإحالة: لو هذا أول إيداع للمستخدم وانضم عبر رابط أحد،
+  // تُصرف المكافأة لصاحب الرابط (مرة واحدة فقط لكل مستخدم).
+  try {
+    payReferralBonus(db, deposit.user_id, notify);
+  } catch (err) {
+    logger.error('فشل صرف مكافأة الإحالة:', err.message);
+  }
+
   notify?.(deposit.user_id,
     `✅ <b>تم تأكيد إيداعك!</b>\n\n` +
     `💵 المبلغ المضاف: <b>${fromMicro(amountMicro).toFixed(2)}$</b>\n` +

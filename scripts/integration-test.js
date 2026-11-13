@@ -80,6 +80,35 @@ function signPayload(payload, secret) {
   return crypto.createHmac('sha512', secret).update(sortedStringify(payload)).digest('hex');
 }
 
+// ===== محاكاة دفع ناجح: تبني إشعار IPN موقّعاً وترسله للبوت =====
+// نبني الإشعار يدوياً (بدل /api/simulate-payment) لأن نقطة المحاكاة
+// تحتاج appWebhookPort مضبوطاً في الخادم الوهمي.
+async function simulatePayment(webhookPort, mocks, paymentId, status = 'finished') {
+  const pay = mocks.nowpayments.payments.get(String(paymentId))
+    || mocks.nowpayments.invoices.get(String(paymentId));
+  if (!pay) throw new Error(`عملية غير موجودة: ${paymentId}`);
+  const isPayment = mocks.nowpayments.payments.has(String(paymentId));
+  const payload = {
+    payment_status: status,
+    pay_address: pay.pay_address,
+    pay_amount: String(pay.pay_amount),
+    actually_paid: String(pay.pay_amount),
+    pay_currency: pay.pay_currency,
+    price_amount: pay.price_amount,
+    price_currency: pay.price_currency,
+    order_id: pay.order_id,
+    order_description: pay.order_description,
+    purchase_id: `p_${paymentId}`,
+    ...(isPayment ? { payment_id: String(paymentId) } : { invoice_id: String(paymentId) }),
+  };
+  const res = await fetch(`http://127.0.0.1:${webhookPort}/webhooks/nowpayments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-nowpayments-sig': signPayload(payload, IPN_SECRET) },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
 async function main() {
   console.log('\n🧪 اختبار التكامل الشامل (End-to-End)\n');
   console.log('⏳ تشغيل خوادم المحاكاة...');
@@ -391,6 +420,85 @@ async function main() {
     await step('سجل العمليات', updateCallback(USER_ID, 'wallet_tx'), 'آخر العمليات');
     check('سُجّلت العمليات في الـ ledger',
       Number(db.prepare('SELECT COUNT(*) AS n FROM transactions WHERE user_id = ?').get(USER_ID).n) >= 4);
+
+    // ============ 9) نظام الإحالة ============
+    console.log('\n9️⃣ نظام الإحالة (20$ لكل إحالة)');
+
+    // رابط الإحالة للمستخدم الأساسي
+    await step('فتح رابط الإحالة', updateCallback(USER_ID, 'wallet_referral'), 'نظام الإحالة');
+    const referralMsg = mocks.telegram.sent.filter((m) => m.method === 'sendMessage').slice(-1)[0];
+    const referralText = referralMsg?.body?.text || '';
+    check('الرسالة تذكر قيمة المكافأة (20$)',
+      referralText.includes('20$'), referralText.slice(0, 120));
+    check('الرسالة تحتوي رابط الإحالة الكامل',
+      referralText.includes('https://t.me/test_invest_bot?start=ref_'), referralText.slice(0, 200));
+    check('الرسالة تعرض عدد المدعوين', referralText.includes('عدد المدعوين'));
+    const shareMarkup = JSON.stringify(referralMsg?.body?.reply_markup || {});
+    check('يوجد زر مشاركة الرابط', shareMarkup.includes('مشاركة الرابط'), shareMarkup.slice(0, 120));
+
+    const referrerCode = db.prepare('SELECT referral_code FROM users WHERE id = ?').get(USER_ID).referral_code;
+    check('رمز الإحالة موجود للمستخدم', Boolean(referrerCode), String(referrerCode));
+
+    // ---- مستخدم جديد ينضم عبر الرابط ----
+    const REFERRED_ID = 777;
+    await step('مستخدم جديد سجّل عبر رابط الإحالة',
+      updateMessage(REFERRED_ID, `/start ref_${referrerCode}`), 'انضممت عبر رابط');
+    check('سُجّل المُحال في قاعدة البيانات',
+      Boolean(db.prepare('SELECT id FROM users WHERE id = ?').get(REFERRED_ID)));
+    check('رُبط المُحال بالمُحيل',
+      db.prepare('SELECT referred_by FROM users WHERE id = ?').get(REFERRED_ID)?.referred_by === USER_ID);
+    const statsAfterJoin = db.prepare(
+      `SELECT COUNT(*) AS n FROM transactions WHERE user_id = ? AND type = 'referral'`
+    ).get(USER_ID).n;
+    check('ما صُرحت مكافأة عند التسجيل فقط (تشترط أول إيداع)', statsAfterJoin === 0,
+      `عدد المكافآت: ${statsAfterJoin}`);
+
+    // ---- إحالة ذاتية مرفوضة ----
+    await step('محاولة إحالة ذاتية عبر الرابط الخاص',
+      updateMessage(USER_ID, `/start ref_${referrerCode}`), 'مرحباً');
+    check('ما ربط المستخدم بنفسه',
+      db.prepare('SELECT referred_by FROM users WHERE id = ?').get(USER_ID)?.referred_by === null);
+
+    // ---- إيداع المستخدم المُحال → تُصرف المكافأة ----
+    const referrerBalanceBefore = balance(USER_ID);
+    await step('المُحال ضغط إيداع', updateMessage(REFERRED_ID, '💰 إيداع'), 'إيداع جديد');
+    await stepButton('المُحال أدخل 15$', updateMessage(REFERRED_ID, '15'), 'dep_cur:usdttrc20');
+    await step('اختيار العملة → عنوان الدفع', updateCallback(REFERRED_ID, 'dep_cur:usdttrc20'), 'إلى هذا العنوان');
+    const referredPaymentId = [...mocks.nowpayments.payments.keys()].pop();
+    await simulatePayment(webhookPort, mocks, referredPaymentId);
+    await waitFor(() => balance(REFERRED_ID) === 15_000_000, 5_000);
+    check('أُضيف 15$ لرصيد المُحال', balance(REFERRED_ID) === 15_000_000, `الرصيد: ${balance(REFERRED_ID)}`);
+
+    await waitFor(() => mocks.telegram.sent.some((m) =>
+      m.body?.chat_id === USER_ID && (m.body?.text || '').includes('مكافأة إحالة')), 5_000);
+    check('وصل إشعار المكافأة للمُحيل', true);
+    check('أُضيفت المكافأة 20$ لرصيد المُحيل',
+      balance(USER_ID) === referrerBalanceBefore + 20_000_000,
+      `الرصيد: ${balance(USER_ID)} (قبل: ${referrerBalanceBefore})`);
+    check('سُجّلت المكافأة في الـ ledger',
+      db.prepare(
+        `SELECT COUNT(*) AS n FROM transactions WHERE user_id = ? AND type = 'referral' AND ref_id = ?`
+      ).get(USER_ID, String(REFERRED_ID)).n === 1);
+
+    // ---- إيداع ثانٍ: ما تتكرر المكافأة ----
+    const referrerBalanceAfter = balance(USER_ID);
+    await step('المُحال ضغط إيداع ثانية', updateMessage(REFERRED_ID, '💰 إيداع'), 'إيداع جديد');
+    await stepButton('المُحال أدخل 12$', updateMessage(REFERRED_ID, '12'), 'dep_cur:usdttrc20');
+    await step('اختيار العملة → عنوان الدفع', updateCallback(REFERRED_ID, 'dep_cur:usdttrc20'), 'إلى هذا العنوان');
+    const secondPaymentId = [...mocks.nowpayments.payments.keys()].pop();
+    await simulatePayment(webhookPort, mocks, secondPaymentId);
+    await waitFor(() => balance(REFERRED_ID) === 27_000_000, 5_000);
+    check('ما تكررت المكافأة عند الإيداع الثاني',
+      balance(USER_ID) === referrerBalanceAfter,
+      `الرصيد: ${balance(USER_ID)} (متوقع: ${referrerBalanceAfter})`);
+
+    // ---- إحصائيات الإحالة بعد المكافأة ----
+    await step('تحديث إحصائيات الإحالة', updateCallback(USER_ID, 'wallet_referral'), 'نظام الإحالة');
+    const statsMsg = mocks.telegram.sent.filter((m) => m.method === 'sendMessage').slice(-1)[0];
+    const statsText = statsMsg?.body?.text || '';
+    check('الإحصائيات تعرض مدعواً واحداً', statsText.includes('عدد المدعوين: <b>1</b>'), statsText.slice(0, 200));
+    check('الإحصائيات تعرض مكافأة مدفوعة', statsText.includes('✅ مدعوّن أودعوا: <b>1</b>'));
+    check('الإحصائيات تعرض إجمالي الأرباح 20$', statsText.includes('20 $'));
 
   } catch (err) {
     failed++;
