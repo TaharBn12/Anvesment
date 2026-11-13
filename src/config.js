@@ -36,8 +36,11 @@ export const config = {
   },
 
   // خادم الـ Webhook الخاص باستقبال إشعارات الدفع
+  // ملاحظة: المنصات السحابية (Render/Railway/Fly/Heroku) تمرّر المنفذ
+  // عبر متغير PORT — نرجّع له إن لم يُضبط WEBHOOK_PORT صراحة،
+  // وإلا سيستمع التطبيق على 3000 ويفشل فحص الصحة على تلك المنصات.
   webhook: {
-    port: num('WEBHOOK_PORT', 3000),
+    port: num('WEBHOOK_PORT', Number(process.env.PORT || 3000)),
     path: process.env.WEBHOOK_PATH || '/webhooks/nowpayments',
     publicUrl: (process.env.PUBLIC_URL || '').replace(/\/$/, ''),
   },
