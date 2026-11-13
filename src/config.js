@@ -79,6 +79,20 @@ export const config = {
     corsOrigins: process.env.ADMIN_API_CORS_ORIGINS || '*',
   },
 
+  // قناة تسجيل الأحداث (اختياري) — تُستقبل فيها نسخة من كل عملية
+  // يبلغ بها النظام: إيداع، سحب، استثمار.
+  logChannel: {
+    // معرّف القناة. لازم يبدأ بـ -100 (قناة عامة/كبيرة).
+    // مثال: -1001234567890. فارغ = التسجيل معطّل.
+    // ⚠️ البوت لازم يكون أدمن في القناة.
+    id: process.env.LOG_CHANNEL_ID || '',
+    // الأحداث المسجّلة (مفصولة بفاصلة):
+    // deposit, withdrawal, investment, profit
+    // فارغ = كل الأحداث
+    events: (process.env.LOG_CHANNEL_EVENTS || '')
+      .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+  },
+
   // (اختياري) عنوان API تلغرام مخصص — يُستخدم للاختبارات أو
   // لتشغيل Bot API Server محلي. فارغ = api.telegram.org الرسمي
   telegramApiRoot: process.env.TELEGRAM_API_ROOT || '',

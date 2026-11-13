@@ -7,9 +7,10 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node scripts/smoke-test.js && node scripts/integration-test.js && node scripts/admin-api-test.js && node scripts/admin-site-test.js",
+    "test": "node scripts/smoke-test.js && node scripts/channel-log-test.js && node scripts/integration-test.js && node scripts/admin-api-test.js && node scripts/admin-site-test.js",
     "test:unit": "node scripts/smoke-test.js",
     "test:e2e": "node scripts/integration-test.js",
+    "test:channel": "node scripts/channel-log-test.js",
     "test:admin": "node scripts/admin-api-test.js && node scripts/admin-site-test.js"
   },
   "engines": {

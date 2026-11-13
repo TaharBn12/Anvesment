@@ -1,6 +1,20 @@
 import { debitWallet, creditWallet, bumpTotals } from './wallet.js';
 import { fromMicro } from '../utils/money.js';
+import { logToChannel, formatWithdrawalLog } from './channelLog.js';
+import { getUser } from './users.js';
 import logger from '../utils/logger.js';
+
+/** تسجيل عملية سحب في القناة — آمن ضد الأخطاء */
+function logWithdrawal(db, withdrawal, event) {
+  try {
+    logToChannel('withdrawal', formatWithdrawalLog(withdrawal, {
+      user: getUser(db, withdrawal.user_id),
+      event,
+    }));
+  } catch (err) {
+    logger.warn('فشل تسجيل السحب في القناة:', err.message);
+  }
+}
 
 /** إنشاء طلب سحب (يخصم المبلغ فوراً ويثبّته في الطلب) */
 export function createWithdrawal(db, userId, amountMicro, currency, address) {
@@ -16,7 +30,9 @@ export function createWithdrawal(db, userId, amountMicro, currency, address) {
     ).run(userId, amountMicro, currency, address);
     db.exec('COMMIT');
     logger.info(`طلب سحب جديد #${info.lastInsertRowid}: مستخدم ${userId} بمبلغ ${fromMicro(amountMicro)}$`);
-    return db.prepare('SELECT * FROM withdrawals WHERE id = ?').get(info.lastInsertRowid);
+    const w = db.prepare('SELECT * FROM withdrawals WHERE id = ?').get(info.lastInsertRowid);
+    logWithdrawal(db, w, 'طلب');
+    return w;
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
@@ -61,6 +77,7 @@ export function rejectWithdrawal(db, id, note = null) {
     db.exec('ROLLBACK');
     throw err;
   }
+  logWithdrawal(db, getWithdrawal(db, id), 'رفض');
   return w;
 }
 
@@ -69,8 +86,10 @@ export function markWithdrawalPaid(db, id, payoutId = null) {
   db.prepare(
     `UPDATE withdrawals SET status = 'paid', payout_id = COALESCE(?, payout_id), updated_at = datetime('now') WHERE id = ?`
   ).run(payoutId, id);
-  bumpTotals(db, getWithdrawal(db, id).user_id, { withdrawn: getWithdrawal(db, id).amount });
-  return getWithdrawal(db, id);
+  const w = getWithdrawal(db, id);
+  bumpTotals(db, w.user_id, { withdrawn: w.amount });
+  logWithdrawal(db, w, 'تنفيذ');
+  return w;
 }
 
 /** تعليم الطلب كموافق عليه ومنتظر الدفع اليدوي */
@@ -78,5 +97,7 @@ export function markWithdrawalApproved(db, id) {
   db.prepare(
     `UPDATE withdrawals SET status = 'approved', updated_at = datetime('now') WHERE id = ?`
   ).run(id);
-  return getWithdrawal(db, id);
+  const w = getWithdrawal(db, id);
+  logWithdrawal(db, w, 'موافقة على');
+  return w;
 }

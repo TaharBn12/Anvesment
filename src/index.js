@@ -5,6 +5,7 @@ import { startWebhookServer } from './api/webhook.js';
 import { startProfitJob } from './jobs/profitJob.js';
 import { startDepositPollJob } from './jobs/pollDeposits.js';
 import { startSelfPingJob } from './jobs/selfPing.js';
+import { setChannelSender } from './services/channelLog.js';
 import logger from './utils/logger.js';
 
 async function main() {
@@ -13,6 +14,19 @@ async function main() {
 
   // 2) قاعدة البيانات
   const db = createDatabase(config.dbPath);
+
+  // 3) قناة تسجيل الأحداث — كل إيداع/سحب/استثمار يُنسخ لها
+  //    لازم البوت يكون أدمن في القناة، وإلا يفشل الإرسال (بأمان).
+  if (config.logChannel.id) {
+    setChannelSender((text) =>
+      bot.telegram.sendMessage(config.logChannel.id, text, { parse_mode: 'HTML' })
+        .catch((err) => logger.warn(`تعذّر التسجيل في القناة ${config.logChannel.id}:`, err.message))
+    );
+    logger.ok(`قناة تسجيل الأحداث: ${config.logChannel.id}` +
+      (config.logChannel.events.length ? ` (${config.logChannel.events.join(', ')})` : ' (كل الأحداث)'));
+  } else {
+    logger.info('قناة تسجيل الأحداث غير مضبوطة (LOG_CHANNEL_ID) — التسجيل معطّل');
+  }
 
   // 3) خادم إشعارات الدفع (IPN)
   const server = startWebhookServer(db, (userId, text) =>

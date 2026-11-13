@@ -3,6 +3,8 @@ import { FINAL_PAYMENT_STATUSES, SUCCESS_PAYMENT_STATUSES } from '../constants.j
 import { toMicro, fromMicro } from '../utils/money.js';
 import { creditWallet, bumpTotals } from './wallet.js';
 import { payReferralBonus } from './referrals.js';
+import { logToChannel, formatDepositLog } from './channelLog.js';
+import { getUser } from './users.js';
 import logger from '../utils/logger.js';
 
 /** إنشاء طلب إيداع جديد (يُستدعى بعد إنشاء الفاتورة في NOWPayments) */
@@ -46,15 +48,16 @@ export function getPendingDeposits(db) {
 }
 
 /** تحديث حالة إيداع من إشعار NOWPayments */
-export function updateDepositStatus(db, deposit, { status, actuallyPaid, payAmount, payAddress }) {
+export function updateDepositStatus(db, deposit, { status, actuallyPaid, payAmount, payAddress, payinHash }) {
   db.prepare(
     `UPDATE deposits
      SET status = ?, actually_paid = COALESCE(?, actually_paid),
          pay_amount = COALESCE(?, pay_amount),
          pay_address = COALESCE(?, pay_address),
+         payin_hash = COALESCE(?, payin_hash),
          updated_at = datetime('now')
      WHERE id = ?`
-  ).run(status, actuallyPaid ?? null, payAmount ?? null, payAddress ?? null, deposit.id);
+  ).run(status, actuallyPaid ?? null, payAmount ?? null, payAddress ?? null, payinHash ?? null, deposit.id);
 }
 
 /**
@@ -109,6 +112,17 @@ export function creditDeposit(db, deposit, notify = null) {
     logger.error('فشل صرف مكافأة الإحالة:', err.message);
   }
 
+  // نسخة للقناة: معرف المستخدم + المبلغ + هاش الدفع
+  try {
+    const fresh = getDepositById(db, deposit.id);
+    logToChannel('deposit', formatDepositLog(fresh, {
+      user: getUser(db, deposit.user_id),
+      payinHash: fresh?.payin_hash ?? null,
+    }));
+  } catch (err) {
+    logger.warn('فشل تسجيل الإيداع في القناة:', err.message);
+  }
+
   notify?.(deposit.user_id,
     `✅ <b>تم تأكيد إيداعك!</b>\n\n` +
     `💵 المبلغ المضاف: <b>${fromMicro(amountMicro).toFixed(2)}$</b>\n` +
@@ -139,6 +153,7 @@ export function handlePaymentUpdate(db, payload, notify = null) {
     actuallyPaid: payload.actually_paid,
     payAmount: payload.pay_amount,
     payAddress: payload.pay_address,
+    payinHash: payload.payin_hash,
   });
 
   if (SUCCESS_PAYMENT_STATUSES.includes(status)) {

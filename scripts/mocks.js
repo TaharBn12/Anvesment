@@ -28,6 +28,9 @@ export function startMocks(options = {}) {
       chatLog: [],     // سجل المحادثة الموحّد (للواجهة)
       chatCursor: 0,
       invoices: null,
+      // عطل محاكاة: لما true، كل إرسال لقناة (chat_id يبدأ بـ -100) يرجع 403
+      failChannelSends: false,
+      failedChannelSends: 0,  // عدد المحاولات التي رُفضت (403)
     };
 
     const pushChat = (entry) => {
@@ -131,6 +134,16 @@ export function startMocks(options = {}) {
             result: { id: 42, is_bot: true, first_name: 'بوت الاختبار', username: 'test_invest_bot' },
           });
         case 'sendMessage':
+          // عطل محاكاة: الإرسال للقناة يفشل (البوت ليس أدمن مثلاً).
+          // لازم الكود يتعامل معها بهدوء وما يطيح العملية الأصلية.
+          if (tg.failChannelSends && String(body.chat_id).startsWith('-100')) {
+            tg.failedChannelSends += 1;
+            return res.status(403).json({
+              ok: false,
+              error_code: 403,
+              description: 'Forbidden: bot is not a member of the channel chat',
+            });
+          }
           return res.json({
             ok: true,
             result: { message_id: tg.sent.length, date: now, chat: { id: body.chat_id }, text: body.text },
