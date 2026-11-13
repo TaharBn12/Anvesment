@@ -1,0 +1,12 @@
+title: لوحة تحكم البوت
+description: لوحة إدارة بوت الاستثمار — المستخدمون، السحوبات، الحظر، وإضافة الرصيد
+lang: ar
+dir: rtl
+theme: null
+
+# ما نريدش Jekyll يبني الملفات — نخدمها كما هي
+include:
+  - admin
+
+exclude:
+  - "*.md"

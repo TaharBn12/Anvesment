@@ -18,11 +18,25 @@ export function createBot(db) {
     : {};
   const bot = new Telegraf(config.botToken, telegramOptions);
 
-  // تمرير قاعدة البيانات لكل سياق
+  // تمرير قاعدة البيانات لكل سياق + منع المحظورين من استخدام البوت
   bot.use(async (ctx, next) => {
     ctx.db = db;
     if (ctx.from) {
-      upsertUser(db, ctx.from, { isAdmin: isAdminUser(ctx.from.id) });
+      const user = upsertUser(db, ctx.from, { isAdmin: isAdminUser(ctx.from.id) });
+      // الأدمن يتجاوز الحظر حتى يقدر يرفعه عن المستخدمين
+      if (user.is_banned && !isAdminUser(ctx.from.id)) {
+        clearState(db, ctx.from.id);
+        if (ctx.callbackQuery) {
+          await ctx.answerCbQuery('⛔ حسابك محظور من البوت.').catch(() => {});
+        } else if (ctx.message) {
+          await ctx.replyWithHTML(
+            `⛔ <b>حسابك محظور من هذا البوت.</b>\n\n` +
+            `${user.ban_reason ? `السبب: ${user.ban_reason}\n\n` : ''}` +
+            `للتواصل مع الإدارة راسل المشغّل.`
+          ).catch(() => {});
+        }
+        return; // لا نكمل لأي معالج
+      }
     }
     await next();
   });

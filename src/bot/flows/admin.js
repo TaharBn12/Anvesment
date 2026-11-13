@@ -5,6 +5,7 @@ import { createBackup } from '../../services/backup.js';
 import path from 'node:path';
 import { getPendingWithdrawals, getWithdrawal, rejectWithdrawal, markWithdrawalPaid, markWithdrawalApproved } from '../../services/withdrawals.js';
 import { createPayout, payoutsConfigured } from '../../api/nowpayments.js';
+import { adminAdjustBalance, adminSetBan, adminUserDetail } from '../../services/admin.js';
 import { STATES } from '../../constants.js';
 import { fromMicro } from '../../utils/money.js';
 import { usd } from '../../utils/format.js';
@@ -44,6 +45,119 @@ export function registerAdminHandlers(bot) {
       logger.error('فشل إنشاء النسخة الاحتياطية:', err.message);
       await ctx.reply(`❌ فشل إنشاء النسخة الاحتياطية: ${err.message}`);
     }
+  });
+
+  // ---- حظر مستخدم ----
+  // الاستخدام: /ban <معرّف> [السبب]
+  bot.command('ban', async (ctx) => {
+    if (!adminOnly(ctx)) return;
+    const [rawId, ...rest] = ctx.message.text.split(/\s+/).slice(1);
+    const userId = Number(rawId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      await ctx.replyWithHTML(
+        '⚠️ الاستخدام: <code>/ban &lt;معرّف&gt; [السبب]</code>\n' +
+        'مثال: <code>/ban 123456789 سبام</code>\n\n' +
+        '📌 معرّف المستخدم يوصلك في طلبات السحب أو من <code>/user &lt;معرّف&gt;</code>.'
+      );
+      return;
+    }
+    if (userId === ctx.from.id) {
+      await ctx.reply('⛔ ما تقدر تحظر نفسك.');
+      return;
+    }
+    const reason = rest.join(' ').trim() || null;
+    const user = adminSetBan(ctx.db, userId, true, reason);
+    if (!user) { await ctx.reply('❌ المستخدم غير موجود.'); return; }
+    await ctx.replyWithHTML(
+      `✅ تم حظر المستخدم <code>${userId}</code>${reason ? `\nالسبب: ${reason}` : ''}\n` +
+      `لرفع الحظر: <code>/unban ${userId}</code>`
+    );
+    await ctx.telegram.sendMessage(userId,
+      `⛔ <b>تم حظرك من هذا البوت.</b>${reason ? `\nالسبب: ${reason}` : ''}`
+    ).catch(() => {});
+  });
+
+  // ---- رفع الحظر ----
+  bot.command('unban', async (ctx) => {
+    if (!adminOnly(ctx)) return;
+    const rawId = ctx.message.text.split(/\s+/)[1];
+    const userId = Number(rawId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      await ctx.replyWithHTML('⚠️ الاستخدام: <code>/unban &lt;معرّف&gt;</code>');
+      return;
+    }
+    const user = adminSetBan(ctx.db, userId, false);
+    if (!user) { await ctx.reply('❌ المستخدم غير موجود.'); return; }
+    await ctx.replyWithHTML(`✅ تم رفع الحظر عن <code>${userId}</code>.`);
+    await ctx.telegram.sendMessage(userId,
+      '🎉 <b>تم رفع الحظر عن حسابك.</b>\nتقدر تستخدم البوت بشكل طبيعي الآن.'
+    ).catch(() => {});
+  });
+
+  // ---- إضافة/خصم رصيد ----
+  // الاستخدام: /addbal <معرّف> <مبلغ> [ملاحظة] — مبلغ سالب = خصم
+  bot.command(['addbal', 'subbal'], async (ctx) => {
+    if (!adminOnly(ctx)) return;
+    const parts = ctx.message.text.split(/\s+/).slice(1);
+    const [rawId, rawAmount, ...rest] = parts;
+    const userId = Number(rawId);
+    const amount = Number(rawAmount);
+    if (!Number.isFinite(userId) || !Number.isFinite(amount) || amount === 0) {
+      await ctx.replyWithHTML(
+        '⚠️ الاستخدام: <code>/addbal &lt;معرّف&gt; &lt;مبلغ&gt; [ملاحظة]</code>\n' +
+        'مثال: <code>/addbal 123456789 50 مكافأة</code>\n' +
+        'للخصم: <code>/addbal 123456789 -10 تصحيح</code>'
+      );
+      return;
+    }
+    const note = rest.join(' ').trim() || null;
+    try {
+      adminAdjustBalance(ctx.db, userId, amount, { note, actor: `@${ctx.from.username || ctx.from.id}` });
+      const after = ctx.db.prepare('SELECT balance FROM users WHERE id = ?').get(userId);
+      await ctx.replyWithHTML(
+        `✅ ${amount > 0 ? 'أُضيف' : 'خُصم'} <b>${Math.abs(amount).toFixed(2)}$</b> ` +
+        `للمستخدم <code>${userId}</code>.\n` +
+        `💰 الرصيد الجديد: <b>${usd(after.balance)}</b>`
+      );
+      await ctx.telegram.sendMessage(userId,
+        `💳 <b>تعديل في رصيدك</b>\n\n` +
+        `${amount > 0 ? '➕ أُضيف' : '➖ خُصم'} <b>${Math.abs(amount).toFixed(2)}$</b>` +
+        `${note ? `\n📝 ${note}` : ''}\n` +
+        `💰 الرصيد الحالي: <b>${usd(after.balance)}</b>`
+      ).catch(() => {});
+    } catch (err) {
+      await ctx.replyWithHTML(`❌ فشل التعديل: <code>${err.message}</code>`);
+    }
+  });
+
+  // ---- معلومات مستخدم ----
+  bot.command('user', async (ctx) => {
+    if (!adminOnly(ctx)) return;
+    const userId = Number(ctx.message.text.split(/\s+/)[1]);
+    if (!Number.isFinite(userId)) {
+      await ctx.replyWithHTML('⚠️ الاستخدام: <code>/user &lt;معرّف&gt;</code>');
+      return;
+    }
+    const u = adminUserDetail(ctx.db, userId);
+    if (!u) { await ctx.reply('❌ المستخدم غير موجود.'); return; }
+    await ctx.replyWithHTML(
+      `👤 <b>مستخدم <code>${u.id}</code></b>\n\n` +
+      `🏷 الاسم: ${u.first_name || '—'} (@${u.username || '—'})\n` +
+      `🚫 الحالة: ${u.is_banned ? `<b>محظور</b>${u.ban_reason ? ` — ${u.ban_reason}` : ''}` : 'نشط'}\n` +
+      `💰 الرصيد: <b>${usd(u.balance)}</b>\n` +
+      `📥 إجمالي الإيداع: <b>${usd(u.total_deposited)}</b>\n` +
+      `📤 إجمالي السحب: <b>${usd(u.total_withdrawn)}</b>\n` +
+      `💸 إجمالي الأرباح: <b>${usd(u.total_profit)}</b>\n` +
+      `📈 استثمارات نشطة: <b>${u.activeInvestments.n}</b> بقيمة <b>${usd(u.activeInvestments.s)}</b>\n` +
+      `✅ إيداعات مكتملة: <b>${u.creditedDeposits.n}</b>\n` +
+      `⏳ سحوبات معلّقة: <b>${u.pendingWithdrawals.n}</b>\n` +
+      `🤝 المدعوّن: <b>${u.referralCount}</b>\n` +
+      `🔗 رمز الإحالة: <code>${u.referral_code}</code>\n` +
+      `📅 التسجيل: ${u.created_at}\n\n` +
+      `🔓 رفع الحظر: <code>/unban ${u.id}</code>\n` +
+      `💰 إضافة رصيد: <code>/addbal ${u.id} 50</code>`,
+      adminKeyboard()
+    );
   });
 
   bot.hears('🛠 لوحة الأدمن', async (ctx) => {

@@ -2,6 +2,7 @@ import express from 'express';
 import { config } from '../config.js';
 import { verifyIpnSignature } from './nowpayments.js';
 import { handlePaymentUpdate } from '../services/deposits.js';
+import { mountAdminApi } from './adminApi.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -44,6 +45,10 @@ export function startWebhookServer(db, notify) {
       res.status(500).json({ error: 'processing failed' });
     }
   });
+
+  // نقاط إدارة الموقع — على نفس الخادم والمنفذ (المنصات المجانية
+  // تفتح منفذاً واحداً فقط، فما نينفعوش نركّب خادم ثانٍ).
+  mountAdminApi(app, db, notify);
 
   const server = app.listen(config.webhook.port, '0.0.0.0', () => {
     const callbackUrl = config.webhook.publicUrl
