@@ -88,12 +88,15 @@ export async function createInvoice({
   const { data } = await api.post('/v1/invoice', body);
 
   // ---- تحقق من الاستجابة قبل استخدامها ----
-  // NOWPayments قد يعيد كائن خطأ (200) بدل الفاتورة — مثلاً مفتاح خاطئ،
-  // أو عملة غير مدعومة للحساب، أو حساب غير موثّق. بدون هالتحقق يمرّ
-  // pay_address = undefined لمكتبة QR فتظهر رسالة غامضة:
-  //   "String required as first argument"
-  // وتُخفي السبب الحقيقي عن المستخدم.
-  if (!data || typeof data.pay_address !== 'string' || data.pay_address.length === 0) {
+  // NOWPayments له نوعان من الفواتير:
+  //   (أ) عنوان دفع مباشر  → pay_address + pay_amount
+  //   (ب) صفحة دفع مستضافة → invoice_url فقط (بدون عنوان)
+  // النوع (ب) شائع ويحدث حسب إعدادات الحساب — فما نرفضهوش،
+  // نعرض للمستخدم رابط الصفحة بدل العنوان.
+  // ولو ما فيش ولا واحد منهم معناة استجابة خطأ (مفتاح خاطئ مثلاً).
+  const hasAddress = typeof data?.pay_address === 'string' && data.pay_address.length > 0;
+  const hasInvoiceUrl = typeof data?.invoice_url === 'string' && data.invoice_url.length > 0;
+  if (!data || (!hasAddress && !hasInvoiceUrl)) {
     const apiMsg = data && (data.message || data.error || data.code || data.status_message);
     const snippet = data ? ` — الاستجابة: ${JSON.stringify(data).slice(0, 300)}` : ' — لا استجابة';
     throw new Error(

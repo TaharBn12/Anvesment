@@ -163,7 +163,7 @@ export function startMocks(options = {}) {
     const npApp = express();
     npApp.use(express.json());
 
-    const np = { invoices: new Map(), payouts: [], counter: Number(options.invoiceCounterStart ?? 5000), failNextInvoice: false };
+    const np = { invoices: new Map(), payouts: [], counter: Number(options.invoiceCounterStart ?? 5000), failNextInvoice: false, hostNextInvoice: false };
 
     npApp.get('/v1/status', (req, res) => res.json({ message: 'OK' }));
     npApp.get('/v1/currencies', (req, res) =>
@@ -183,6 +183,29 @@ export function startMocks(options = {}) {
       if (np.failNextInvoice) {
         np.failNextInvoice = false;
         return res.json({ status: false, message: 'Invalid API key' });
+      }
+
+      // وضع صفحة الدفع المستضافة (للاختبارات): NOWPayments يرجع invoice_url
+      // بدون pay_address — يحدث حسب إعدادات الحساب، والبوت يعرض رابطاً.
+      if (np.hostNextInvoice) {
+        np.hostNextInvoice = false;
+        const hosted = {
+          id,
+          token_id: `tk${id}`,
+          order_id: req.body.order_id,
+          order_description: req.body.order_description,
+          price_amount: req.body.price_amount,
+          price_currency: req.body.price_currency || 'usd',
+          pay_currency: req.body.pay_currency,
+          ipn_callback_url: req.body.ipn_callback_url ?? null,
+          invoice_url: `https://nowpayments.io/payment/?iid=${id}`,
+          payment_status: 'waiting',
+          actually_paid: '0',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        np.invoices.set(id, hosted);
+        return res.json(hosted);
       }
 
       const invoice = {
@@ -227,6 +250,13 @@ export function startMocks(options = {}) {
     // بدون pay_address — يسبّب خطأ QR الغامض لو ما تحقّقنا من الاستجابة.
     npApp.post('/_test/invoice/fail-next', (req, res) => {
       np.failNextInvoice = true;
+      res.json({ ok: true });
+    });
+
+    // وضع صفحة الدفع المستاعدة: الفاتورة القادمة بلا pay_address لكن مع
+    // invoice_url — يتعرّف عليها البوت ويعرض رابط الدفع بدل ما يفشل.
+    npApp.post('/_test/invoice/hosted-next', (req, res) => {
+      np.hostNextInvoice = true;
       res.json({ ok: true });
     });
 

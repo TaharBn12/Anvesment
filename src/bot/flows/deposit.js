@@ -1,11 +1,10 @@
-import QRCode from 'qrcode';
 import { config } from '../../config.js';
 import { setState, clearState, getState } from '../../services/users.js';
-import { createDeposit, generateOrderId } from '../../services/deposits.js';
-import { createInvoice, getMinimumPaymentAmount, getEstimate, filterSupportedCurrencies } from '../../api/nowpayments.js';
-import { DEFAULT_DEPOSIT_CURRENCIES, STATES } from '../../constants.js';
+import { createDeposit, generateOrderId, getUserDeposits } from '../../services/deposits.js';
+import { createInvoice, getMinimumPaymentAmount, getEstimate, filterSupportedCurrencies, getInvoice } from '../../api/nowpayments.js';
+import { DEFAULT_DEPOSIT_CURRENCIES, STATES, SUCCESS_PAYMENT_STATUSES } from '../../constants.js';
 import { parsePositiveAmount, toMicro, fromMicro } from '../../utils/money.js';
-import { depositCurrencyKeyboard, mainMenu, backKeyboard } from '../keyboards.js';
+import { depositCurrencyKeyboard, depositPayLinkKeyboard, mainMenu, backKeyboard } from '../keyboards.js';
 import logger from '../../utils/logger.js';
 
 let currencies = DEFAULT_DEPOSIT_CURRENCIES;
@@ -35,6 +34,39 @@ export function registerDepositHandlers(bot) {
     currencies = DEFAULT_DEPOSIT_CURRENCIES.filter((c) => codes.includes(c.code));
     if (currencies.length === 0) currencies = DEFAULT_DEPOSIT_CURRENCIES;
     await ctx.editMessageReplyMarkup(depositCurrencyKeyboard(currencies));
+  });
+
+  // ---- تحديث حالة الدفع يدوياً (زر «🔄 تحديث حالة الدفع») ----
+  // المتابعة الدورية تكفي عادةً، لكن الزر يعطي المستخدم رداً فورياً.
+  bot.action('dep_check', async (ctx) => {
+    await ctx.answerCbQuery('⏳ جارٍ التحقق من الحالة...');
+    try {
+      const last = getUserDeposits(ctx.db, ctx.from.id, 1)[0];
+      if (!last) {
+        await ctx.replyWithHTML('ما عندك إيداعات سابقة.', mainMenu());
+        return;
+      }
+      const invoice = await getInvoice(String(last.invoice_id));
+      const status = String(invoice.payment_status || last.status);
+      const paid = SUCCESS_PAYMENT_STATUSES.includes(status);
+
+      await ctx.replyWithHTML(
+        `🔎 <b>حالة إيداعك</b>\n\n` +
+        `💵 المبلغ: <b>${fromMicro(last.price_amount).toFixed(2)}$</b>\n` +
+        `🪙 العملة: <b>${(last.pay_currency || '').toUpperCase()}</b>\n` +
+        `📊 الحالة: <b>${status}</b>\n\n` +
+        (paid
+          ? '✅ وصلتنا العملية — الرصيد يُضاف الآن إن ما أُضيف بعد.'
+          : '⏳ لسّه في الانتظار. أرسل المبلغ ثم انتظر قليلاً.'),
+        mainMenu()
+      );
+    } catch (err) {
+      logger.warn('فشل التحقق من حالة الإيداع:', err.message);
+      await ctx.replyWithHTML(
+        '⚠️ تعذّر التحقق الآن. جرّب بعد قليل — المتابعة التلقائية مستمرة.',
+        mainMenu()
+      );
+    }
   });
 
   // ---- اختيار العملة وإنشاء الفاتورة ----
@@ -86,19 +118,33 @@ export function registerDepositHandlers(bot) {
       });
       clearState(ctx.db, ctx.from.id);
 
-      // رسالة العنوان + رمز QR
-      const qrBuffer = await QRCode.toBuffer(invoice.pay_address, { margin: 1, width: 400 });
-      const caption =
-        `📩 <b>تفاصيل الإيداع</b>\n\n` +
-        `💵 أرسل بالضبط: <b>${invoice.pay_amount} ${code.toUpperCase()}</b>\n` +
-        `🏦 إلى العنوان:\n<code>${invoice.pay_address}</code>\n\n` +
-        `🧾 رقم الفاتورة: <code>${invoice.id}</code>\n` +
-        `⏳ الحالة: في انتظار الدفع...\n\n` +
-        `✅ سيتم إضافة <b>${fromMicro(toMicro(amountUsd)).toFixed(2)}$</b> إلى رصيدك <b>تلقائياً</b> ` +
-        `بعد تأكيد الشبكة (عادة دقائق). لا تغيّر المبلغ أو العملة.`;
+      // ---- رسالة بسيطة: العنوان فقط ----
+      // NOWPayments يرجّع إمّا عنوان دفع مباشر (pay_address) أو رابط صفحة
+      // دفع مستضافة (invoice_url) — نتعرّف على الاثنين ونعرض المناسب.
+      const amountText = `${fromMicro(toMicro(amountUsd)).toFixed(2)}$`;
+      const hasAddress = typeof invoice.pay_address === 'string' && invoice.pay_address.length > 0;
 
-      await ctx.replyWithPhoto({ source: qrBuffer }, { caption, parse_mode: 'HTML' });
-      logger.info(`فاتورة إيداع جديدة: مستخدم ${ctx.from.id} — ${amountUsd}$ بـ ${code}`);
+      if (hasAddress) {
+        // الكمية بالعملة الرقمية قد تكون مفقودة في استجابة الصفحة المستضافة
+        const cryptoAmount = invoice.pay_amount
+          ? `\n📦 الكمية المطلوبة: <b>${invoice.pay_amount} ${code.toUpperCase()}</b>`
+          : '';
+        await ctx.replyWithHTML(
+          `💵 أرسل <b>${amountText}</b> بعملة <b>${code.toUpperCase()}</b>\n` +
+          `🏦 إلى هذا العنوان:\n<code>${invoice.pay_address}</code>${cryptoAmount}\n\n` +
+          `⏳ سنخبرك تلقائياً عند وصول المبلغ ✅`,
+          mainMenu()
+        );
+      } else {
+        await ctx.replyWithHTML(
+          `💵 أرسل <b>${amountText}</b> بعملة <b>${code.toUpperCase()}</b>\n\n` +
+          `🔗 اضغط الزر بالأسفل لفتح صفحة الدفع:\n\n` +
+          `⏳ سنخبرك تلقائياً عند وصول المبلغ ✅`,
+          depositPayLinkKeyboard(invoice.invoice_url)
+        );
+      }
+      logger.info(`فاتورة إيداع جديدة: مستخدم ${ctx.from.id} — ${amountUsd}$ بـ ${code}` +
+        (hasAddress ? '' : ' (صفحة دفع مستضافة)'));
     } catch (err) {
       // استجابة NOWPayments عند الأخطاء (401 مفتاح خاطئ، عملة غير مدعومة...)
       const apiDetail = err.response?.data
