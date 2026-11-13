@@ -21,6 +21,7 @@ const ROOT = path.resolve(__dirname, '..');
 const IPN_SECRET = 'test_ipn_secret';
 const USER_ID = 555;
 const ADMIN_ID = 777;
+const CHANNEL_ID = -100999888777;
 
 let passed = 0;
 let failed = 0;
@@ -83,7 +84,7 @@ function signPayload(payload, secret) {
 // ===== محاكاة دفع ناجح: تبني إشعار IPN موقّعاً وترسله للبوت =====
 // نبني الإشعار يدوياً (بدل /api/simulate-payment) لأن نقطة المحاكاة
 // تحتاج appWebhookPort مضبوطاً في الخادم الوهمي.
-async function simulatePayment(webhookPort, mocks, paymentId, status = 'finished') {
+async function simulatePayment(webhookPort, mocks, paymentId, status = 'finished', payinHash = null) {
   const pay = mocks.nowpayments.payments.get(String(paymentId))
     || mocks.nowpayments.invoices.get(String(paymentId));
   if (!pay) throw new Error(`عملية غير موجودة: ${paymentId}`);
@@ -101,6 +102,7 @@ async function simulatePayment(webhookPort, mocks, paymentId, status = 'finished
     purchase_id: `p_${paymentId}`,
     ...(isPayment ? { payment_id: String(paymentId) } : { invoice_id: String(paymentId) }),
   };
+  if (payinHash) payload.payin_hash = payinHash;
   const res = await fetch(`http://127.0.0.1:${webhookPort}/webhooks/nowpayments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-nowpayments-sig': signPayload(payload, IPN_SECRET) },
@@ -138,6 +140,8 @@ async function main() {
       MIN_WITHDRAW: '5',
       DEPOSIT_POLL_SECONDS: '999999',
       PAYOUT_HOUR: '0',
+      // قناة تسجيل الأحداث — لازم تكون مضبوطة عشان الاختبار يتحقق
+      LOG_CHANNEL_ID: String(CHANNEL_ID),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -563,6 +567,150 @@ async function main() {
     await step('الأدمن استعلم عن مستخدم', updateMessage(ADMIN_ID, `/user ${BANNED_ID}`), 'مستخدم');
     check('التفاصيل تعرض الرصيد والحالة',
       mocks.telegram.sent.slice(-1).some((m) => (m.body?.text || '').includes('الرصيد')));
+
+    // ============ 12) قناة تسجيل الأحداث ============
+    console.log('\n1️⃣2️⃣ قناة تسجيل الأحداث');
+    // ملاحظة: chat_id يوصل من الإعدادات كنص، فنقارن كنص.
+    const CHANNEL_STR = String(CHANNEL_ID);
+    // كل رسالة وصلت القناة — نراقبها من أول الاختبار
+    const toChannel = () => mocks.telegram.sent.filter((m) => String(m.body?.chat_id) === CHANNEL_STR);
+    const channelText = () => toChannel().map((m) => m.body?.text || '').join('\n');
+
+    // ---- إيداع: معرف المستخدم + المبلغ + هاش الدفع + رابط التحقق ----
+    const chBeforeDep = toChannel().length;
+    await step('المستخدم ضغط إيداع (للقناة)', updateMessage(USER_ID, '💰 إيداع'), 'إيداع جديد');
+    await stepButton('أدخل 45$', updateMessage(USER_ID, '45'), 'dep_cur:usdttrc20');
+    await step('اختيار العملة → العنوان', updateCallback(USER_ID, 'dep_cur:usdttrc20'), 'إلى هذا العنوان');
+    const chPayId = [...mocks.nowpayments.payments.keys()].pop();
+    const HASH = 'a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00';
+    await simulatePayment(webhookPort, mocks, chPayId, 'finished', HASH);
+    await waitFor(() => balance(USER_ID) > 0, 5_000);
+    await sleep(500);
+
+    const chDeposit = toChannel().slice(chBeforeDep);
+    check('وصلت رسالة إيداع للقناة', chDeposit.length > 0, `عدد: ${chDeposit.length}`);
+    const depText = chDeposit.map((m) => m.body?.text || '').join('\n');
+    check('رسالة الإيداع تحتوي معرف المستخدم', depText.includes(`<code>${USER_ID}</code>`), depText.slice(0, 150));
+    check('رسالة الإيداع تحتوي المبلغ 45$', depText.includes('<b>45.00$</b>'), depText.slice(0, 200));
+    check('رسالة الإيداع تحتوي هاش الدفع', depText.includes(HASH), depText.slice(0, 250));
+    check('رسالة الإيداع تحتوي رابط تحقق من البلوكشين',
+      depText.includes('tronscan.org'), depText.slice(0, 300));
+    check('رابط التحقق يحتوي الهاش', depText.includes(HASH) && depText.includes(`transaction/${HASH}`));
+    check('رسالة الإيداع تحتوي رقم العملية', depText.includes(`<code>${chPayId}</code>`));
+    check('رسالة الإيداع تحتوي العملة', depText.includes('USDTTRC20'));
+
+    // التحقق أن الهاش خُزّن في القاعدة
+    const savedHash = db.prepare('SELECT payin_hash FROM deposits WHERE invoice_id = ?').get(String(chPayId));
+    check('الهاش محفوظ في قاعدة البيانات', savedHash?.payin_hash === HASH, String(savedHash?.payin_hash));
+
+    // ---- سحب: يصل للقناة ----
+    const chBeforeWd = toChannel().length;
+    await step('المستخدم ضغط سحب (للقناة)', updateMessage(USER_ID, '💸 سحب'), 'طلب سحب');
+    await stepButton('إدخال 5$', updateMessage(USER_ID, '5'), 'wd_cur:usdttrc20');
+    await step('اختيار العملة → العنوان', updateCallback(USER_ID, 'wd_cur:usdttrc20'), 'عنوان محفظتك');
+    await stepButton('إدخال العنوان', updateMessage(USER_ID, 'TWithdrawToChannel123'), 'wd_confirm');
+    const beforeWdBal = balance(USER_ID);
+    await step('تأكيد السحب', updateCallback(USER_ID, 'wd_confirm'), 'تم استلام طلب السحب');
+    await sleep(400);
+    check('خُصم 5$ من الرصيد', balance(USER_ID) === beforeWdBal - 5_000_000);
+
+    const chWd = toChannel().slice(chBeforeWd);
+    const wdText = chWd.map((m) => m.body?.text || '').join('\n');
+    check('وصلت رسالة سحب للقناة', chWd.length > 0, `عدد: ${chWd.length}`);
+    check('رسالة السحب تحتوي معرف المستخدم', wdText.includes(`<code>${USER_ID}</code>`), wdText.slice(0, 150));
+    check('رسالة السحب تحتوي المبلغ', wdText.includes('<b>5.00$</b>'), wdText.slice(0, 200));
+    check('رسالة السحب تحتوي العنوان', wdText.includes('TWithdrawToChannel123'));
+    check('رسالة السحب تحتوي الحالة (قيد المراجعة)', wdText.includes('قيد المراجعة'));
+
+    // ---- استثمار: يصل للقناة ----
+    const chBeforeInv = toChannel().length;
+    await step('ضغط استثمار', updateMessage(USER_ID, '📈 استثمار'), 'المستويات');
+    await step('اختيار المستوى الأول', updateCallback(USER_ID, 'inv_level:1'), 'أدخل المبلغ');
+    await stepButton('إدخال 20$', updateMessage(USER_ID, '20'), 'inv_confirm:1');
+    await step('تأكيد الاستثمار', updateCallback(USER_ID, 'inv_confirm:1'), 'تم تفعيل استثمارك');
+    await sleep(400);
+
+    const chInv = toChannel().slice(chBeforeInv);
+    const invText = chInv.map((m) => m.body?.text || '').join('\n');
+    check('وصلت رسالة استثمار للقناة', chInv.length > 0, `عدد: ${chInv.length}`);
+    check('رسالة الاستثمار تحتوي معرف المستخدم', invText.includes(`<code>${USER_ID}</code>`), invText.slice(0, 150));
+    check('رسالة الاستثمار تحتوي المبلغ 20$', invText.includes('<b>20.00$</b>'));
+    check('رسالة الاستثمار تحتوي المستوى', invText.includes('المستوى: <b>1</b>'));
+    check('رسالة الاستثمار تحتوي الربح اليومي', invText.includes('الربح اليومي'));
+
+    // ---- ربح يومي: يصل للقناة ----
+    const chBeforeProfit = toChannel().length;
+    db.prepare(`UPDATE investments SET next_payout = date('now') WHERE user_id = ?`).run(USER_ID);
+    await step('الأدمن شغّل صرف الأرباح', updateCallback(ADMIN_ID, 'admin_run_payouts'), 'تمت معالجة');
+    await sleep(600);
+    const chProfit = toChannel().slice(chBeforeProfit);
+    const profitText = chProfit.map((m) => m.body?.text || '').join('\n');
+    check('وصلت رسالة ربح يومي للقناة', chProfit.length > 0, `عدد: ${chProfit.length}`);
+    check('رسالة الربح تحتوي معرف المستخدم', profitText.includes(`<code>${USER_ID}</code>`), profitText.slice(0, 150));
+
+    // ---- الأحداث غير المطلوبة ما توصل ----
+    check('ما وصل المستخدم رسائل القناة (القناة منفصلة)',
+      !mocks.telegram.sent.some((m) =>
+        m.body?.chat_id === USER_ID && (m.body?.text || '').includes('إيداع جديد') &&
+        (m.body?.text || '').includes('هاش الدفع')));
+
+    // ---- القناة تكسر: العمليات لازم تكمل عادي ----
+    console.log('\n1️⃣3️⃣ القناة مكسورة (البوت ليس أدمن)');
+    mocks.telegram.failChannelSends = true;
+    const chCountBeforeBreak = toChannel().length;
+    const balBefore = balance(USER_ID);
+
+    // إيداع والقناة مكسورة
+    await step('المستخدم ضغط إيداع (قناة مكسورة)', updateMessage(USER_ID, '💰 إيداع'), 'إيداع جديد');
+    await stepButton('أدخل 12$', updateMessage(USER_ID, '12'), 'dep_cur:usdttrc20');
+    await step('اختيار العملة → العنوان', updateCallback(USER_ID, 'dep_cur:usdttrc20'), 'إلى هذا العنوان');
+    const brokenPayId = [...mocks.nowpayments.payments.keys()].pop();
+    await simulatePayment(webhookPort, mocks, brokenPayId, 'finished', 'b'.repeat(64));
+    await waitFor(() => balance(USER_ID) > balBefore, 5_000);
+    await sleep(500);
+    check('الإيداع نجح رغم فشل القناة', balance(USER_ID) > balBefore, `الرصيد: ${balance(USER_ID)}`);
+    check('القناة حاولت الإرسال ورُفض (403)',
+      mocks.telegram.failedChannelSends > 0,
+      `محاولات مرفوضة: ${mocks.telegram.failedChannelSends}`);
+    check('المحاولة فشلت مرة واحدة بس (بلا تكرار لا نهائي)',
+      mocks.telegram.failedChannelSends === 1,
+      `محاولات مرفوضة: ${mocks.telegram.failedChannelSends}`);
+    check('الإيداع مُسجّل في القاعدة رغم فشل القناة',
+      db.prepare('SELECT credited FROM deposits WHERE invoice_id = ?').get(String(brokenPayId))?.credited === 1);
+    check('المستخدم استلم إشعار الإيداع رغم فشل القناة',
+      mocks.telegram.sent.some((m) =>
+        m.body?.chat_id === USER_ID && (m.body?.text || '').includes('تم تأكيد إيداعك')));
+    check('الهاش خُزّن رغم فشل القناة',
+      db.prepare('SELECT payin_hash FROM deposits WHERE invoice_id = ?').get(String(brokenPayId))?.payin_hash === 'b'.repeat(64));
+
+    // سحب والقناة مكسورة
+    const balBeforeWd = balance(USER_ID);
+    await step('المستخدم ضغط سحب (قناة مكسورة)', updateMessage(USER_ID, '💸 سحب'), 'طلب سحب');
+    await stepButton('إدخال 6$', updateMessage(USER_ID, '6'), 'wd_cur:usdttrc20');
+    await step('اختيار العملة → العنوان', updateCallback(USER_ID, 'wd_cur:usdttrc20'), 'عنوان محفظتك');
+    await stepButton('إدخال العنوان', updateMessage(USER_ID, 'TBrokenChannelTest'), 'wd_confirm');
+    await step('تأكيد السحب', updateCallback(USER_ID, 'wd_confirm'), 'تم استلام طلب السحب');
+    await sleep(400);
+    check('السحب خُصم رغم فشل القناة', balance(USER_ID) === balBeforeWd - 6_000_000);
+
+    // استثمار والقناة مكسورة
+    const balBeforeInv = balance(USER_ID);
+    await step('ضغط استثمار (قناة مكسورة)', updateMessage(USER_ID, '📈 استثمار'), 'المستويات');
+    await step('اختيار المستوى الأول', updateCallback(USER_ID, 'inv_level:1'), 'أدخل المبلغ');
+    await stepButton('إدخال 25$', updateMessage(USER_ID, '25'), 'inv_confirm:1');
+    await step('تأكيد الاستثمار', updateCallback(USER_ID, 'inv_confirm:1'), 'تم تفعيل استثمارك');
+    await sleep(400);
+    check('الاستثمار خُصم رغم فشل القناة', balance(USER_ID) === balBeforeInv - 25_000_000);
+    check('الاستثمار مُفعّل في القاعدة رغم فشل القناة',
+      db.prepare("SELECT COUNT(*) c FROM investments WHERE user_id = ? AND status = 'active'").get(USER_ID).c > 0);
+
+    // إرجاع العطل
+    mocks.telegram.failChannelSends = false;
+    check('العمليات كلها نجحت وما في رسائل فشل للمستخدم',
+      !mocks.telegram.sent.some((m) =>
+        m.body?.chat_id === USER_ID && /خطأ|تعذّر|فشل/.test(m.body?.text || '') &&
+        (m.body?.text || '').includes('القناة')));
+
 
   } catch (err) {
     failed++;

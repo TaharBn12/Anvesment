@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS settings (
 const MIGRATIONS = [
   `ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN ban_reason TEXT`,
+  // هاش معاملة الدفع على البلوكشين (يأتي من NOWPayments في payin_hash)
+  `ALTER TABLE deposits ADD COLUMN payin_hash TEXT`,
 ];
 
 export function createDatabase(dbPath) {

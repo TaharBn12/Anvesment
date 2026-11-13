@@ -2,6 +2,8 @@ import { getLevel, INVESTMENT_LEVELS } from '../constants.js';
 import { toMicro, applyRate, rateToMicro, toBig, fromMicro } from '../utils/money.js';
 import { addDays, todayStr, daysBetween } from '../utils/format.js';
 import { debitWallet, creditWallet, bumpTotals } from './wallet.js';
+import { logToChannel, formatInvestmentLog, formatProfitLog } from './channelLog.js';
+import { getUser } from './users.js';
 import logger from '../utils/logger.js';
 
 /** إنشاء استثمار جديد من رصيد المحفظة */
@@ -30,7 +32,14 @@ export function createInvestment(db, userId, levelNumber, amountMicro) {
     ).run(userId, level.level, amountMicro, dailyRateMicro, level.durationDays, start, end, addDays(start, 1));
     db.exec('COMMIT');
     logger.ok(`استثمار جديد: مستخدم ${userId} مستوى ${level.level} بمبلغ ${amount}$`);
-    return db.prepare('SELECT * FROM investments WHERE id = ?').get(info.lastInsertRowid);
+    const inv = db.prepare('SELECT * FROM investments WHERE id = ?').get(info.lastInsertRowid);
+    // نسخة للقناة: معرف المستخدم + المستوى + المبلغ
+    try {
+      logToChannel('investment', formatInvestmentLog(inv, { user: getUser(db, userId) }));
+    } catch (err) {
+      logger.warn('فشل تسجيل الاستثمار في القناة:', err.message);
+    }
+    return inv;
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
@@ -111,6 +120,14 @@ export function processInvestmentPayout(db, investment, { date = todayStr(), not
   }
 
   const remaining = investment.duration_days - newPaid;
+
+  // نسخة للقناة: ربح يومي مصروف
+  try {
+    logToChannel('profit', formatProfitLog(investment, dailyProfit));
+  } catch (err) {
+    logger.warn('فشل تسجيل الربح في القناة:', err.message);
+  }
+
   notify?.(investment.user_id,
     isLastDay
       ? `🏆 <b>اكتمل استثمارك!</b>\n\n` +
