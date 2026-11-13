@@ -500,6 +500,70 @@ async function main() {
     check('الإحصائيات تعرض مكافأة مدفوعة', statsText.includes('✅ مدعوّن أودعوا: <b>1</b>'));
     check('الإحصائيات تعرض إجمالي الأرباح 20$', statsText.includes('20 $'));
 
+    // ============ 10) الحظر ============
+    console.log('\n🔟 الحظر (منع المستخدم من البوت)');
+    const BANNED_ID = 888;
+    await step('تسجيل مستخدم جديد', updateMessage(BANNED_ID, '/start'), 'مرحباً');
+    check('المستخدم الجديد نشط',
+      db.prepare('SELECT is_banned FROM users WHERE id = ?').get(BANNED_ID)?.is_banned === 0);
+
+    // الأدمن يحظره بأمر تلغرام
+    await step('الأدمن حظر المستخدم', updateMessage(ADMIN_ID, `/ban ${BANNED_ID} تجربة`), 'تم حظر');
+    check('المستخدم محظور في القاعدة',
+      db.prepare('SELECT is_banned FROM users WHERE id = ?').get(BANNED_ID)?.is_banned === 1);
+    check('سبب الحظر مخزّن',
+      db.prepare('SELECT ban_reason FROM users WHERE id = ?').get(BANNED_ID)?.ban_reason === 'تجربة');
+
+    // المحظور يحاول استخدام البوت → يُرفض
+    await step('المحظور يُرفض عند المحاولة', updateMessage(BANNED_ID, '💰 إيداع'), 'محظور');
+    const bannedSent = mocks.telegram.sent.filter((m) =>
+      m.body?.chat_id === BANNED_ID && (m.body?.text || '').includes('محظور'));
+    check('وصلت رسالة الحظر للمستخدم', bannedSent.length > 0);
+    check('ما بدأ تدفق إيداع (ما وصل طلب المبلغ)',
+      !bannedSent.some((m) => (m.body?.text || '').includes('إيداع جديد')),
+      bannedSent.map((m) => m.body?.text?.slice(0, 40)).join(' | '));
+    check('حالة المحظور نُظّفت',
+      (db.prepare('SELECT state FROM users WHERE id = ?').get(BANNED_ID)?.state ?? 'idle') === 'idle');
+
+    // الزر التفاعلي مرفوض أيضاً — answerCbQuery ما تُسجَّل كرسالة،
+    // فالمعيار الصحيح: ما وصل المستخدم أي محتوى جديد من الزر.
+    const beforeCallback = mocks.telegram.sent.length;
+    await updateCallback(BANNED_ID, 'wallet_tx');
+    await sleep(400);
+    const afterCallback = mocks.telegram.sent.slice(beforeCallback);
+    check('الزر ما أنتج أي محتوى للمحظور',
+      afterCallback.every((m) => m.body?.chat_id !== BANNED_ID),
+      afterCallback.map((m) => `${m.method}:${m.body?.chat_id}`).join(' | '));
+    check('ما وصلته قائمة العمليات',
+      !afterCallback.some((m) => (m.body?.text || '').includes('آخر العمليات')));
+
+    // رفع الحظر
+    await step('الأدمن رفع الحظر', updateMessage(ADMIN_ID, `/unban ${BANNED_ID}`), 'رفع الحظر');
+    check('المستخدم عاد نشطاً',
+      db.prepare('SELECT is_banned FROM users WHERE id = ?').get(BANNED_ID)?.is_banned === 0);
+    await step('المستخدم يقدر يستخدم البوت بعد رفع الحظر', updateMessage(BANNED_ID, '💰 إيداع'), 'إيداع جديد');
+
+    // ---- إضافة رصيد من الإدارة ----
+    console.log('\n1️⃣1️⃣ إضافة رصيد من الإدارة');
+    const beforeBal = balance(BANNED_ID);
+    await step('الأدمن أضاف 30$', updateMessage(ADMIN_ID, `/addbal ${BANNED_ID} 30 مكافأة`), 'أُضيف');
+    check('أُضيف 30$ للرصيد',
+      balance(BANNED_ID) === beforeBal + 30_000_000, `الرصيد: ${balance(BANNED_ID)}`);
+    check('سُجّلت العملية في الـ ledger',
+      db.prepare(
+        `SELECT COUNT(*) AS n FROM transactions WHERE user_id = ? AND type = 'admin_credit'`
+      ).get(BANNED_ID).n === 1);
+    const afterAdd = balance(BANNED_ID);
+    await step('الأدمن خصم 10$', updateMessage(ADMIN_ID, `/addbal ${BANNED_ID} -10`), 'خُصم');
+    check('خُصم 10$ من الرصيد', balance(BANNED_ID) === afterAdd - 10_000_000);
+    check('ما يسمح بخصم أكثر من الرصيد',
+      !updateMessage(ADMIN_ID, `/addbal ${BANNED_ID} -99999`).message.text.includes('✓'));
+
+    // ---- معلومات مستخدم ----
+    await step('الأدمن استعلم عن مستخدم', updateMessage(ADMIN_ID, `/user ${BANNED_ID}`), 'مستخدم');
+    check('التفاصيل تعرض الرصيد والحالة',
+      mocks.telegram.sent.slice(-1).some((m) => (m.body?.text || '').includes('الرصيد')));
+
   } catch (err) {
     failed++;
     failures.push(`استثناء: ${err.message}`);

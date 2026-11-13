@@ -70,6 +70,15 @@ export const config = {
   // قاعدة البيانات
   dbPath: process.env.DB_PATH || './data/bot.db',
 
+  // واجهة إدارة الموقع (لوحة التحكم على GitHub Pages)
+  adminApi: {
+    port: num('ADMIN_API_PORT', Number(process.env.PORT) || 3001),
+    // رمز الدخول للوحة الإدارة — لو فاضي، الواجهة مُعطّلة بالكامل
+    token: process.env.ADMIN_API_TOKEN || '',
+    // أصول مسموحة (مفصولة بفاصلة) — عنوان موقع GitHub Pages
+    corsOrigins: process.env.ADMIN_API_CORS_ORIGINS || '*',
+  },
+
   // (اختياري) عنوان API تلغرام مخصص — يُستخدم للاختبارات أو
   // لتشغيل Bot API Server محلي. فارغ = api.telegram.org الرسمي
   telegramApiRoot: process.env.TELEGRAM_API_ROOT || '',

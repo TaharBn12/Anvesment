@@ -50,6 +50,49 @@ export function countUsers(db) {
   return db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 }
 
+// ============================================================
+//  الحظر (Ban) — يُنفّذ من لوحة الأدمن في تلغرام أو من الموقع
+// ============================================================
+
+/** حظر مستخدم مع تسجيل السبب */
+export function banUser(db, userId, reason = null) {
+  db.prepare('UPDATE users SET is_banned = 1, ban_reason = ? WHERE id = ?')
+    .run(reason, userId);
+  logger.info(`حظر المستخدم ${userId}${reason ? ` — ${reason}` : ''}`);
+  return getUser(db, userId);
+}
+
+/** رفع الحظر عن مستخدم */
+export function unbanUser(db, userId) {
+  db.prepare('UPDATE users SET is_banned = 0, ban_reason = NULL WHERE id = ?').run(userId);
+  logger.info(`رفع الحظر عن المستخدم ${userId}`);
+  return getUser(db, userId);
+}
+
+/** هل المستخدم محظور؟ */
+export function isBanned(db, userId) {
+  const row = db.prepare('SELECT is_banned FROM users WHERE id = ?').get(userId);
+  return Boolean(row?.is_banned);
+}
+
+/** قائمة المستخدمين مع فلترة (للبحث في لوحة التحكم) */
+export function searchUsers(db, { query = '', bannedOnly = false, limit = 50, offset = 0 } = {}) {
+  const clauses = [];
+  const params = [];
+  if (query) {
+    const q = `%${String(query).replace(/%/g, '')}%`;
+    clauses.push('(CAST(id AS TEXT) LIKE ? OR IFNULL(username,\'\') LIKE ? OR IFNULL(first_name,\'\') LIKE ?)');
+    params.push(q, q, q);
+  }
+  if (bannedOnly) clauses.push('is_banned = 1');
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const rows = db.prepare(
+    `SELECT * FROM users ${where} ORDER BY id DESC LIMIT ? OFFSET ?`
+  ).all(...params, limit, offset);
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM users ${where}`).get(...params).n;
+  return { rows, total };
+}
+
 /** إجماليات للوحة الأدمن */
 export function platformStats(db) {
   const users = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;

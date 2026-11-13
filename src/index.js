@@ -47,6 +47,11 @@ async function main() {
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** هل سلسلة إعادة تشغيل البوت نشطة حالياً؟ */
+let botRunning = false;
+/** هل البوت انطلق بنجاح فعلاً؟ (يميّز السقوط اللاحق عن فشل الإطلاق) */
+let botLaunched = false;
+
 /**
  * تشغيل البوت مع إعادة محاولة تلقائية بفاصل متزايد (حتى 60 ثانية).
  * ملاحظة مهمة: bot.launch() في وضع polling لا تُكمل أبداً (حلقة لا تنتهي)،
@@ -54,15 +59,29 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
  * المهام المجدولة — وإذا توقّف البوت لاحقاً نعيد تشغيله تلقائياً.
  */
 async function launchBotWithRetry(bot) {
+  // حارس: سلسلة إعادة محاولة واحدة فقط في أي لحظة.
+  // بدونه، كل فشل كان يبدأ سلسلة جديدة من داخل .catch() بينما الحلقة
+  // الخارجية تعيد المحاولة أيضاً → سلاسل متوازية تتضاعف وتُشبع الخادم
+  // (لاحظناها تُوقف استجابة الـ API بالكامل).
+  if (botRunning) return;
+  botRunning = true;
+
   for (let attempt = 1; ; attempt++) {
     const launchPromise = bot.launch();
-    // منع الأخطاء غير المعالجة إذا رفضت launch() لاحقاً (مثل توكن مُبطَل)
+    // نبتلع الرفض المتأخر حتى ما يظهر كخطأ غير معالج.
+    // نعيد السلسلة فقط لو كنا شغّالين فعلاً وسقطنا — أما لو الحلقة
+    // الخارجية لسّه تحاول (botLaunched = false) فنتركها هي تتعامل.
     launchPromise.catch((err) => {
-      logger.error('توقّف البوت:', err.message);
-      setTimeout(() => launchBotWithRetry(bot).catch(() => {}), 5_000);
+      if (botLaunched) {
+        logger.error('توقّف البوت:', err.message);
+        botLaunched = false;
+        botRunning = false;
+        setTimeout(() => launchBotWithRetry(bot).catch(() => {}), 5_000);
+      }
     });
     try {
       await Promise.race([launchPromise, delay(3_000)]);
+      botLaunched = true;
       logger.ok('🚀 البوت يعمل (وضع polling)');
       return;
     } catch (err) {

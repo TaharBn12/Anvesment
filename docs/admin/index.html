@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لوحة تحكم البوت</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+</head>
+<body>
+
+<!-- ============ شاشة الدخول ============ -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div class="login-logo">🤖</div>
+    <h1>لوحة تحكم البوت</h1>
+    <p class="login-sub">أدخل رابط الخدمة ورمز الدخول</p>
+
+    <label for="apiUrl">رابط الخدمة</label>
+    <input id="apiUrl" type="url" placeholder="https://your-service.onrender.com"
+           autocomplete="url" spellcheck="false">
+    <p class="hint">نفس رابط خدمتك على Render / Koyeb — بدون شرطة في الأخير</p>
+
+    <label for="apiToken">رمز الدخول</label>
+    <input id="apiToken" type="password" placeholder="ADMIN_API_TOKEN"
+           autocomplete="current-password" spellcheck="false">
+    <p class="hint">القيمة اللي حطيتها في <code>ADMIN_API_TOKEN</code></p>
+
+    <button id="loginBtn" class="btn btn-primary btn-block">دخول</button>
+    <p id="loginError" class="error-box hidden"></p>
+
+    <details class="login-help">
+      <summary>ما أعرف رابط خدمتي؟</summary>
+      <div class="help-body">
+        <p><b>Render:</b> لوحة الخدمة → الرابط في الأعلى شكله
+           <code>https://xxx.onrender.com</code></p>
+        <p><b>Koyeb:</b> الخدمة → تبويب <b>Settings</b> → <b>Domains</b></p>
+        <p><b>محلي:</b> <code>http://localhost:3000</code></p>
+      </div>
+    </details>
+  </div>
+</div>
+
+<!-- ============ التطبيق ============ -->
+<div id="app" class="app hidden">
+
+  <header class="topbar">
+    <div class="topbar-title">🤖 لوحة التحكم</div>
+    <div class="topbar-actions">
+      <span id="connBadge" class="badge"></span>
+      <button id="refreshBtn" class="btn btn-ghost" title="تحديث">🔄</button>
+      <button id="logoutBtn" class="btn btn-ghost" title="خروج">🚪 خروج</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="dashboard">📊 الرئيسية</button>
+    <button class="tab" data-tab="users">👥 المستخدمون</button>
+    <button class="tab" data-tab="withdrawals">💸 السحوبات <span id="wdBadge" class="tab-badge hidden"></span></button>
+    <button class="tab" data-tab="deposits">📥 الإيداعات</button>
+  </nav>
+
+  <main class="content">
+
+    <!-- ======= الرئيسية ======= -->
+    <section id="tab-dashboard" class="tab-pane active">
+      <div class="stat-grid" id="statGrid">
+        <div class="stat-card"><div class="stat-label">👥 المستخدمون</div><div class="stat-value" id="stUsers">—</div></div>
+        <div class="stat-card"><div class="stat-label">🚫 محظورون</div><div class="stat-value" id="stBanned">—</div></div>
+        <div class="stat-card"><div class="stat-label">💰 أرصدة المستخدمين</div><div class="stat-value" id="stBalances">—</div></div>
+        <div class="stat-card"><div class="stat-label">📥 إجمالي الإيداعات</div><div class="stat-value" id="stDeposited">—</div></div>
+        <div class="stat-card"><div class="stat-label">📤 إجمالي السحوبات</div><div class="stat-value" id="stWithdrawn">—</div></div>
+        <div class="stat-card"><div class="stat-label">💸 الأرباح المصروفة</div><div class="stat-value" id="stProfit">—</div></div>
+        <div class="stat-card"><div class="stat-label">📈 عقود نشطة</div><div class="stat-value" id="stActive">—</div></div>
+        <div class="stat-card warn"><div class="stat-label">⏳ سحوبات معلّقة</div><div class="stat-value" id="stPending">—</div></div>
+        <div class="stat-card"><div class="stat-label">🤝 إحالات</div><div class="stat-value" id="stReferrals">—</div></div>
+      </div>
+      <div class="panel">
+        <h3>ℹ️ معلومات</h3>
+        <p id="dashInfo" class="muted"></p>
+      </div>
+    </section>
+
+    <!-- ======= المستخدمون ======= -->
+    <section id="tab-users" class="tab-pane">
+      <div class="toolbar">
+        <input id="userSearch" type="search" placeholder="ابحث بالمعرّف أو الاسم أو @username">
+        <label class="checkbox"><input type="checkbox" id="bannedOnly"> المحظورون فقط</label>
+        <button id="userSearchBtn" class="btn btn-primary">بحث</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="usersTable">
+          <thead><tr>
+            <th>المعرّف</th><th>الاسم</th><th>الرصيد</th><th>الإيداع</th>
+            <th>السحب</th><th>الحالة</th><th>إجراءات</th>
+          </tr></thead>
+          <tbody><tr><td colspan="7" class="empty">…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button id="usersPrev" class="btn btn-ghost">← السابق</button>
+        <span id="usersPageInfo" class="muted"></span>
+        <button id="usersNext" class="btn btn-ghost">التالي →</button>
+      </div>
+    </section>
+
+    <!-- ======= السحوبات ======= -->
+    <section id="tab-withdrawals" class="tab-pane">
+      <div class="toolbar">
+        <select id="wdStatusFilter">
+          <option value="pending">⏳ معلّقة</option>
+          <option value="approved">✅ موافق عليها</option>
+          <option value="paid">💰 مدفوعة</option>
+          <option value="rejected">❌ مرفوضة</option>
+          <option value="">الكل</option>
+        </select>
+        <button id="wdRefreshBtn" class="btn btn-primary">تحديث</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="wdTable">
+          <thead><tr>
+            <th>#</th><th>المستخدم</th><th>المبلغ</th><th>العملة</th>
+            <th>العنوان</th><th>الحالة</th><th>التاريخ</th><th>إجراءات</th>
+          </tr></thead>
+          <tbody><tr><td colspan="8" class="empty">…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ======= الإيداعات ======= -->
+    <section id="tab-deposits" class="tab-pane">
+      <div class="toolbar">
+        <select id="depStatusFilter">
+          <option value="">الكل</option>
+          <option value="finished">✅ مكتملة</option>
+          <option value="waiting">⏳ في الانتظار</option>
+          <option value="confirming">🔄 قيد التأكيد</option>
+          <option value="failed">❌ فاشلة</option>
+          <option value="expired">⌛️ منتهية</option>
+        </select>
+        <button id="depRefreshBtn" class="btn btn-primary">تحديث</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="depTable">
+          <thead><tr>
+            <th>#</th><th>المستخدم</th><th>رقم العملية</th><th>المبلغ</th>
+            <th>العملة</th><th>الحالة</th><th>مُضاف؟</th><th>التاريخ</th>
+          </tr></thead>
+          <tbody><tr><td colspan="8" class="empty">…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============ نافذة منبثقة عامة ============ -->
+<div id="modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle">عنوان</h3>
+      <button id="modalClose" class="btn btn-ghost">✕</button>
+    </div>
+    <div id="modalBody" class="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

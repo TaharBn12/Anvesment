@@ -102,6 +102,16 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
+// ============================================================
+//  الترقيات (Migrations): أعمدة أُضيفت بعد الإصدار الأول.
+//  تُنفّذ مرة واحدة بأمان — أي أمر يفشل يعني أن العمود موجود أصلاً.
+//  ضرورية لأن CREATE TABLE IF NOT EXISTS ما تعدّل جدولاً قائماً.
+// ============================================================
+const MIGRATIONS = [
+  `ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN ban_reason TEXT`,
+];
+
 export function createDatabase(dbPath) {
   // دعم ':memory:' كقاعدة في الذاكرة (بدون تحويلها لمسار ملف)
   const isMemory = dbPath === ':memory:';
@@ -115,6 +125,9 @@ export function createDatabase(dbPath) {
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  for (const sql of MIGRATIONS) {
+    try { db.exec(sql); } catch { /* العمود مضاف سابقاً */ }
+  }
   logger.ok(`قاعدة البيانات جاهزة: ${resolved}`);
   return db;
 }

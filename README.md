@@ -41,6 +41,7 @@ npm start
 🍎 **عندك آيفون وتريد iSH؟** (لماذا لا يعمل داخله + الطريق الصحيح SSH): [`docs/ISH_AR.md`](docs/ISH_AR.md)
 💻 **تشغيل على الكمبيوتر** (Windows بنقرة واحدة / Mac / Linux): [`docs/PC_AR.md`](docs/PC_AR.md)
 🤝 **نظام الإحالة** (رابط خاص + 20$ لكل صديق يُودع): [`docs/REFERRAL_AR.md`](docs/REFERRAL_AR.md)
+🖥 **لوحة تحكم على موقع** (حظر، إضافة رصيد، السحوبات — على GitHub Pages): [`docs/admin/README.md`](docs/admin/README.md)
 
 ## 🧪 اختبار ذاتي بدون مفاتيح حقيقية
 
