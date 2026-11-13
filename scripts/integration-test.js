@@ -207,6 +207,35 @@ async function main() {
     check('حُفظت الفاتورة في قاعدة البيانات',
       Number(db.prepare('SELECT COUNT(*) AS n FROM deposits').get().n) === 1);
 
+    // ============ 2ب) فشل NOWPayments → رسالة واضحة ============
+    // انحدار: كان pay_address = undefined يمرّ لمكتبة QR فتظهر
+    // "String required as first argument" وتُخفي السبب الحقيقي.
+    console.log('\n2ب️⃣ فشل NOWPayments (استجابة بدون عنوان دفع)');
+    await fetch(`http://127.0.0.1:${mocks.nowpaymentsPort}/_test/invoice/fail-next`, { method: 'POST' });
+    await step('إيداع → طلب المبلغ', updateMessage(USER_ID, '💰 إيداع'), 'إيداع جديد');
+    await step('أدخل 25$ → عرض العملات', updateMessage(USER_ID, '25'), 'اختر العملة');
+    const gotClearError = await step(
+      'رسالة الخطأ تشرح السبب الحقيقي',
+      updateCallback(USER_ID, 'dep_cur:usdttrc20'),
+      'NOWPayments لم يُعد عنوان دفع'
+    );
+
+    if (gotClearError) {
+      const sent = mocks.telegram.sent.filter((m) => m.method === 'sendMessage');
+      const errText = sent[sent.length - 1]?.body?.text || '';
+      check('الرسالة تذكر ردّ NOWPayments الفعلي (Invalid API key)',
+        errText.includes('Invalid API key'), errText.slice(0, 120));
+      check('الرسالة لا تحوي خطأ QR الغامض',
+        !errText.includes('String required as first argument'));
+    } else {
+      check('الرسالة تذكر ردّ NOWPayments الفعلي', false, 'ما ظهرت رسالة الخطأ');
+      check('الرسالة لا تحوي خطأ QR الغامض', false, 'ما ظهرت رسالة الخطأ');
+    }
+    check('ما أُنشئت فاتورة ثانية في القاعدة',
+      Number(db.prepare('SELECT COUNT(*) AS n FROM deposits').get().n) === 1);
+    check('حالة المستخدم نُظّفت بعد الفشل',
+      (db.prepare('SELECT state FROM users WHERE id = ?').get(USER_ID)?.state ?? 'idle') === 'idle');
+
     // ============ 3) الدفع الفعلي + الإشعار ============
     console.log('\n3️⃣ الدفع والإشعار (IPN)');
     await fetch(`http://127.0.0.1:${mocks.nowpaymentsPort}/_test/invoice/${invoiceId}/status`, {

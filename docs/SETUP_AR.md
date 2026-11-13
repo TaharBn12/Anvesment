@@ -15,6 +15,11 @@
 3. من **Settings → Instant Payment Notifications** → أنشئ سرّ IPN (احتفظ به).
 4. أضف عناوين السحب الخاصة بك في **Settings → Payout addresses** إن أردت السحب التلقائي.
 
+> 📘 **الدليل الكامل خطوة بخطوة** (الساندبوكس للتجربة بدون مال، رابط IPN،
+> السحب التلقائي، وحل المشاكل): [`NOWPAYMENTS_AR.md`](NOWPAYMENTS_AR.md)
+>
+> ⚠️ **البوت لا يعمل بدون `NOWPAYMENTS_API_KEY`** — يتوقف فوراً عند التشغيل.
+
 ## 3️⃣ إعداد ملف البيئة
 
 ```bash

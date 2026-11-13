@@ -163,7 +163,7 @@ export function startMocks(options = {}) {
     const npApp = express();
     npApp.use(express.json());
 
-    const np = { invoices: new Map(), payouts: [], counter: Number(options.invoiceCounterStart ?? 5000) };
+    const np = { invoices: new Map(), payouts: [], counter: Number(options.invoiceCounterStart ?? 5000), failNextInvoice: false };
 
     npApp.get('/v1/status', (req, res) => res.json({ message: 'OK' }));
     npApp.get('/v1/currencies', (req, res) =>
@@ -176,6 +176,15 @@ export function startMocks(options = {}) {
     });
     npApp.post('/v1/invoice', (req, res) => {
       const id = String(++np.counter);
+
+      // وضع الفشل (للاختبارات فقط): يحاكي NOWPayments وهو يعيد كائن خطأ
+      // بدل الفاتورة — وهذا اللي يسبّب الخطأ الغامض
+      // "String required as first argument" القادم من مكتبة QR.
+      if (np.failNextInvoice) {
+        np.failNextInvoice = false;
+        return res.json({ status: false, message: 'Invalid API key' });
+      }
+
       const invoice = {
         id,
         order_id: req.body.order_id,
@@ -212,6 +221,13 @@ export function startMocks(options = {}) {
       if (req.body.actually_paid) inv.actually_paid = req.body.actually_paid;
       inv.updated_at = new Date().toISOString();
       res.json(inv);
+    });
+
+    // وضع الفشل (للاختبارات): الطلب القادم لإنشاء فاتورة يعيد كائن خطأ
+    // بدون pay_address — يسبّب خطأ QR الغامض لو ما تحقّقنا من الاستجابة.
+    npApp.post('/_test/invoice/fail-next', (req, res) => {
+      np.failNextInvoice = true;
+      res.json({ ok: true });
     });
 
     // ===================== واجهة المحاكاة (ويب) =====================

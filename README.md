@@ -36,6 +36,7 @@ npm start
 📱 **تريد التشغيل من الهاتف؟** (Koyeb بدون طرفية، Termux لأندرويد): [`docs/DEPLOY_AR.md`](docs/DEPLOY_AR.md)
 
 ☁️ **النشر على Koyeb المجاني** (دليل كامل + حلول النوم وفقدان البيانات): [`docs/KOYEB_AR.md`](docs/KOYEB_AR.md)
+💳 **إعداد NOWPayments** (مفاتيح API، IPN، الساندبوكس، السحب التلقائي): [`docs/NOWPAYMENTS_AR.md`](docs/NOWPAYMENTS_AR.md)
 ☁️ **النشر على Render** (Blueprint بضغطة + حل فقدان البيانات): [`docs/RENDER_AR.md`](docs/RENDER_AR.md)
 🍎 **عندك آيفون وتريد iSH؟** (لماذا لا يعمل داخله + الطريق الصحيح SSH): [`docs/ISH_AR.md`](docs/ISH_AR.md)
 💻 **تشغيل على الكمبيوتر** (Windows بنقرة واحدة / Mac / Linux): [`docs/PC_AR.md`](docs/PC_AR.md)
